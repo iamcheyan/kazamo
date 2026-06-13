@@ -18,8 +18,8 @@ select option { background: inherit; color: inherit; }
 
 /* ── HeaderBar ── */
 .kazamo-headerbar {
-  --mie-headerbar-size: 0;
-  padding: 2rem 1rem;
+  --mie-headerbar-size: 2.57rem;
+  padding: 0 1rem;
   flex: 0 0 auto;
   -webkit-app-region: drag;
 }
