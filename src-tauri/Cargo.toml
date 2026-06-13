@@ -1,0 +1,32 @@
+[package]
+name = "kazamo"
+version = "0.1.0"
+description = "Kazamo - Voice-to-text for Linux"
+authors = ["iamcheyan"]
+edition = "2021"
+
+[lib]
+name = "kazamo_lib"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
+futures-util = "0.3"
+dirs = "5"
+opener = "0.7"
+libc = "0.2"
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

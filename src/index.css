@@ -1,0 +1,6 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { overflow: hidden; font-family: Cantarell, "Noto Sans", sans-serif; transition: background 0.2s, color 0.2s; }
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #8884; border-radius: 3px; }
+select option { background: inherit; color: inherit; }

@@ -1,0 +1,119 @@
+#!/bin/bash
+# kazamo - Voice-to-text tool for Linux
+SOCK="${XDG_RUNTIME_DIR:-/tmp}/kazamo.sock"
+STATE_FILE="${XDG_RUNTIME_DIR:-/tmp}/kazamo-state"
+BIN="/home/tetsuya/Development/ChordVoxTauri/src-tauri/target/debug/chordvox-tauri"
+
+send() { echo "$1" | ncat -U "$SOCK" 2>/dev/null; }
+
+app_running() { [ -S "$SOCK" ] && send "ping" 2>/dev/null | grep -q "pong"; }
+
+ensure_running() {
+    if ! app_running; then
+        rm -f "$SOCK" "$STATE_FILE"
+        WEBKIT_DISABLE_DMABUF_RENDERER=1 "$BIN" &>/dev/null &
+        disown
+        for i in $(seq 1 20); do sleep 0.5; app_running && break; done
+        if ! app_running; then echo "Error: Failed to start Kazamo" >&2; exit 1; fi
+        sleep 1
+    fi
+}
+
+cmd_toggle() {
+    ensure_running
+    if [ -f "$STATE_FILE" ] && [ "$(cat "$STATE_FILE")" = "recording" ]; then
+        cmd_stop
+    else
+        cmd_start
+    fi
+}
+
+cmd_start() {
+    ensure_running
+    if [ -f "$STATE_FILE" ] && [ "$(cat "$STATE_FILE")" = "recording" ]; then
+        echo "Already recording. Use 'kazamo stop' to stop." >&2
+        return 1
+    fi
+    echo "recording" > "$STATE_FILE"
+    send "set-recording" >/dev/null
+    send "toggle-start" >/dev/null
+    echo "Recording started."
+}
+
+cmd_stop() {
+    ensure_running
+    if [ ! -f "$STATE_FILE" ] || [ "$(cat "$STATE_FILE")" != "recording" ]; then
+        echo "Not recording. Use 'kazamo start' to start." >&2
+        return 1
+    fi
+    echo "idle" > "$STATE_FILE"
+    send "set-idle" >/dev/null
+    echo "Transcribing..." >&2
+    RESULT=$(send "toggle-stop")
+    if [ -n "$RESULT" ] && [ "$RESULT" != "error" ] && [ "$RESULT" != "?" ]; then
+        echo "$RESULT"
+        command -v wl-copy &>/dev/null && echo -n "$RESULT" | wl-copy
+    else
+        echo "No speech detected." >&2
+        return 1
+    fi
+}
+
+cmd_status() {
+    if app_running; then
+        if [ -f "$STATE_FILE" ] && [ "$(cat "$STATE_FILE")" = "recording" ]; then
+            echo "recording"
+        else
+            echo "idle"
+        fi
+    else
+        echo "stopped"
+    fi
+}
+
+cmd_show() {
+    ensure_running
+    if app_running; then
+        wlrctl toplevel focus "chordvox-tauri: Kazamo" 2>/dev/null || \
+        wlrctl toplevel focus "Kazamo" 2>/dev/null || true
+    fi
+}
+
+show_help() {
+    cat << 'HELP'
+kazamo - Voice-to-text for Linux
+
+Usage:
+  kazamo <command>
+
+Commands:
+  toggle       Toggle recording (start or stop + transcribe)
+  start        Start recording
+  stop         Stop recording and transcribe
+  status       Show current status (idle / recording / stopped)
+  show         Bring window to front
+  help         Show this help
+
+Examples:
+  kazamo toggle              # One-key recording workflow
+  kazamo start && sleep 3 && kazamo stop
+  kazamo stop                # Stop and get transcription
+
+Global hotkey (labwc ~/.config/labwc/rc.xml):
+  <keybind key="A-r">
+    <action name="Execute">
+      <command>kazamo toggle</command>
+    </action>
+  </keybind>
+HELP
+}
+
+case "${1:-help}" in
+    toggle)  cmd_toggle ;;
+    start)   cmd_start ;;
+    stop)    cmd_stop ;;
+    status)  cmd_status ;;
+    show)    cmd_show ;;
+    help|-h|--help)  show_help ;;
+    *)       echo "Unknown command: $1" >&2; echo "Run 'kazamo help' for usage." >&2; exit 1 ;;
+esac
