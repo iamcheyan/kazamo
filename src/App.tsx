@@ -151,7 +151,7 @@ function SettingsPage({ zoom, setZoom }: { zoom: number; setZoom: (z: number) =>
   );
 
   return (
-    <div className="page settings-page">
+    <div className="settings-page">
       {/* ── Theme & Zoom ── */}
       {sectionLabel("Appearance")}
       <Mie.Rows className="settings-rows">
@@ -391,7 +391,7 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   }, [doStart]);
 
   return (
-    <div className="page main-page">
+    <div className="main-page">
       {/* Record button */}
       <div className="record-control">
         <button onClick={toggle} disabled={state === "processing"}
