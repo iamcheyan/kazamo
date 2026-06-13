@@ -15,8 +15,8 @@
       {
         "label": "main",
         "title": "Kazamo",
-        "width": 400,
-        "height": 460,
+        "width": 520,
+        "height": 560,
         "resizable": true,
         "fullscreen": false,
         "decorations": false,

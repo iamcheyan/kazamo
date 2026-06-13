@@ -7,7 +7,14 @@ pub struct Settings {
     pub provider: String,
     pub hotkey: String,
     pub theme: String,  // "light", "dark", "system"
+    #[serde(default = "default_sensevoice")]
+    pub sensevoice_model: String,
+    #[serde(default = "default_paraformer")]
+    pub paraformer_model: String,
 }
+
+fn default_sensevoice() -> String { "SenseVoice Small Q4_K".to_string() }
+fn default_paraformer() -> String { "Paraformer-Large".to_string() }
 
 impl Default for Settings {
     fn default() -> Self {
@@ -16,6 +23,8 @@ impl Default for Settings {
             provider: "sensevoice".to_string(),
             hotkey: "Alt+R".to_string(),
             theme: "system".to_string(),
+            sensevoice_model: "SenseVoice Small Q4_K".to_string(),
+            paraformer_model: "Paraformer-Large".to_string(),
         }
     }
 }

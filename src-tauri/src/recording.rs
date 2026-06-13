@@ -98,7 +98,7 @@ impl Recorder {
         }
     }
 
-    pub fn is_recording(&self) -> bool {
+    pub fn _is_recording(&self) -> bool {
         self.process.lock().unwrap().is_some()
     }
 }

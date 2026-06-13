@@ -23,6 +23,7 @@ futures-util = "0.3"
 dirs = "5"
 opener = "0.7"
 libc = "0.2"
+reqwest = { version = "0.12", features = ["stream"] }
 
 [profile.release]
 panic = "abort"

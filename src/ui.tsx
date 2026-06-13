@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from "react";
+import type { Theme } from "./themes";
 
 // ════════════════════════════════════════
 //  Design Tokens
@@ -31,15 +32,17 @@ export const C = {
 // ════════════════════════════════════════
 interface SelectOption { value: string; label: string; }
 
-export function Select({ value, onChange, options, width }: {
+export function Select({ value, onChange, options, width, theme }: {
   value: string;
   onChange: (v: string) => void;
   options: SelectOption[];
   width?: number | string;
+  theme?: Theme;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const selected = options.find((o) => o.value === value);
+  const t = theme || { bg: C.bg, surface: C.surface, surfaceAlt: C.surfaceHover, border: C.border, text: C.text, textSecondary: C.textSecondary, muted: C.muted, accent: C.accent, inputBg: C.surface } as any;
 
   useEffect(() => {
     const handler = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
@@ -51,9 +54,9 @@ export function Select({ value, onChange, options, width }: {
     <div ref={ref} style={{ position: "relative", width: width || "100%", maxWidth: 320 }}>
       <button onClick={() => setOpen(!open)}
         style={{
-          width: "100%", padding: "10px 14px", borderRadius: 8,
-          border: `1px solid ${open ? C.borderFocus : C.border}`,
-          background: C.surface, color: C.text, fontSize: 14,
+          width: "100%", padding: "7px 12px", borderRadius: 8,
+          border: `1px solid ${open ? t.accent : t.border}`,
+          background: t.surface, color: t.text, fontSize: 13,
           cursor: "pointer", textAlign: "left",
           display: "flex", alignItems: "center", justifyContent: "space-between",
           transition: "border-color 0.15s",
@@ -61,30 +64,30 @@ export function Select({ value, onChange, options, width }: {
         }}
       >
         <span>{selected?.label || value}</span>
-        <span style={{ color: C.muted, fontSize: 10, marginLeft: 8, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▼</span>
+        <span style={{ color: t.muted, fontSize: 10, marginLeft: 8, transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }}>▼</span>
       </button>
       {open && (
         <div style={{
           position: "absolute", top: "calc(100% + 4px)", left: 0, right: 0, zIndex: 50,
-          background: C.surface, border: `1px solid ${C.border}`, borderRadius: 8,
+          background: t.surface, border: `1px solid ${t.border}`, borderRadius: 8,
           boxShadow: "0 8px 30px rgba(0,0,0,0.5)", overflow: "hidden",
           animation: "fadeSlideIn 0.12s ease-out",
         }}>
           {options.map((opt) => (
             <button key={opt.value} onClick={() => { onChange(opt.value); setOpen(false); }}
-              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = C.surfaceHover; }}
-              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = opt.value === value ? C.surfaceHover : "transparent"; }}
+              onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = t.surfaceAlt; }}
+              onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = opt.value === value ? t.surfaceAlt : "transparent"; }}
               style={{
-                width: "100%", padding: "10px 14px", border: "none", cursor: "pointer",
-                fontSize: 14, textAlign: "left",
-                background: opt.value === value ? C.surfaceHover : "transparent",
-                color: opt.value === value ? C.text : C.textSecondary,
+                width: "100%", padding: "7px 12px", border: "none", cursor: "pointer",
+                fontSize: 13, textAlign: "left",
+                background: opt.value === value ? t.surfaceAlt : "transparent",
+                color: opt.value === value ? t.text : t.textSecondary,
                 fontWeight: opt.value === value ? 500 : 400,
                 display: "flex", alignItems: "center", justifyContent: "space-between",
               }}
             >
               <span>{opt.label}</span>
-              {opt.value === value && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={C.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>}
+              {opt.value === value && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={t.accent} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5"/></svg>}
             </button>
           ))}
         </div>
@@ -99,20 +102,22 @@ export function Select({ value, onChange, options, width }: {
 // ════════════════════════════════════════
 //  Button
 // ════════════════════════════════════════
-export function Button({ children, onClick, variant = "default", disabled, size = "md" }: {
+export function Button({ children, onClick, variant = "default", disabled, size = "md", theme }: {
   children: React.ReactNode;
   onClick?: () => void;
   variant?: "default" | "primary" | "danger" | "ghost";
   disabled?: boolean;
   size?: "sm" | "md";
+  theme?: Theme;
 }) {
   const [hovered, setHovered] = useState(false);
+  const t = theme || { surface: C.surface, surfaceAlt: C.surfaceHover, border: C.border, textSecondary: C.textSecondary, muted: C.muted, accent: C.accent, accentHover: C.accentHover, danger: C.danger } as any;
 
   const styles: Record<string, React.CSSProperties> = {
-    default: { background: hovered ? C.surfaceHover : C.surface, color: C.textSecondary, border: `1px solid ${C.border}` },
-    primary: { background: hovered ? C.accentHover : C.accent, color: "#fff", border: "none" },
-    danger: { background: hovered ? `${C.danger}25` : `${C.danger}15`, color: C.danger, border: `1px solid ${C.danger}40` },
-    ghost: { background: "transparent", color: C.muted, border: "none" },
+    default: { background: hovered ? t.surfaceAlt : t.surface, color: t.textSecondary, border: `1px solid ${t.border}` },
+    primary: { background: hovered ? t.accentHover : t.accent, color: "#fff", border: "none" },
+    danger: { background: hovered ? `${t.danger}25` : `${t.danger}15`, color: t.danger, border: `1px solid ${t.danger}40` },
+    ghost: { background: "transparent", color: t.muted, border: "none" },
   };
 
   const paddings = size === "sm" ? "6px 12px" : "8px 18px";

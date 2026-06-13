@@ -68,10 +68,6 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            if let Some(w) = app.get_webview_window("main") {
-                if let Ok(s) = w.scale_factor() { if s > 1.0 { let _ = w.set_zoom(s); } }
-            }
-
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![

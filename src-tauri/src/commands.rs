@@ -6,7 +6,6 @@ use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::image::Image;
-use tauri::Manager;
 
 pub struct AppState {
     pub recorder: Arc<Recorder>,
@@ -37,12 +36,26 @@ pub async fn get_settings(state: tauri::State<'_, AppState>) -> Result<Settings,
 }
 
 #[tauri::command]
-pub async fn save_settings(state: tauri::State<'_, AppState>, language: String, provider: String, hotkey: String, theme: String) -> Result<(), String> {
+pub async fn save_settings(
+    state: tauri::State<'_, AppState>,
+    language: String,
+    provider: String,
+    hotkey: String,
+    theme: String,
+    sensevoice_model: Option<String>,
+    paraformer_model: Option<String>,
+) -> Result<(), String> {
     let mut s = state.settings.lock().await;
     s.language = language;
     s.provider = provider;
     s.hotkey = hotkey;
     s.theme = theme;
+    if let Some(m) = sensevoice_model {
+        s.sensevoice_model = m;
+    }
+    if let Some(m) = paraformer_model {
+        s.paraformer_model = m;
+    }
     s.save()
 }
 
@@ -65,19 +78,28 @@ pub async fn list_models() -> Result<Vec<ModelInfo>, String> {
     let home = dirs::home_dir().unwrap_or_default();
     let cache = home.join(".cache").join("chordvoxmini");
     Ok(vec![
-        check_model("SenseVoice", &cache.join("sensevoice-models"), &["sense-voice-small-q4_k.gguf", "sense-voice-small-q4_1.gguf", "sense-voice-small-q5_0.gguf", "sense-voice-small-q8_0.gguf"]),
-        check_model("Paraformer", &cache.join("paraformer-models").join("paraformer-large-zh"), &["model.onnx", "tokens.txt"]),
+        check_model("SenseVoice Small Q3_K", &cache.join("sensevoice-models"), &["sense-voice-small-q3_k.gguf"]),
+        check_model("SenseVoice Small Q4_0", &cache.join("sensevoice-models"), &["sense-voice-small-q4_0.gguf"]),
+        check_model("SenseVoice Small Q4_1", &cache.join("sensevoice-models"), &["sense-voice-small-q4_1.gguf"]),
+        check_model("SenseVoice Small Q4_K", &cache.join("sensevoice-models"), &["sense-voice-small-q4_k.gguf"]),
+        check_model("SenseVoice Small Q5_0", &cache.join("sensevoice-models"), &["sense-voice-small-q5_0.gguf"]),
+        check_model("SenseVoice Small Q5_K", &cache.join("sensevoice-models"), &["sense-voice-small-q5_k.gguf"]),
+        check_model("SenseVoice Small Q6_K", &cache.join("sensevoice-models"), &["sense-voice-small-q6_k.gguf"]),
+        check_model("SenseVoice Small Q8_0", &cache.join("sensevoice-models"), &["sense-voice-small-q8_0.gguf"]),
+        check_model("SenseVoice Small FP16", &cache.join("sensevoice-models"), &["sense-voice-small-fp16.gguf"]),
+        check_model("SenseVoice Small FP32", &cache.join("sensevoice-models"), &["sense-voice-small-fp32.gguf"]),
+        check_model("Paraformer-Large", &cache.join("paraformer-models").join("paraformer-large-zh"), &["model.onnx", "tokens.txt"]),
     ])
 }
 
 fn check_model(name: &str, dir: &std::path::Path, files: &[&str]) -> ModelInfo {
     if files.is_empty() { return ModelInfo { name: name.to_string(), downloaded: false, path: dir.to_string_lossy().to_string(), size_mb: 0 }; }
-    let all_exist = files.iter().all(|f| dir.join(f).exists());
-    if all_exist {
-        // report size of the first file (e.g. the onnx)
-        let path = dir.join(files[0]);
-        let size = std::fs::metadata(&path).map(|m| m.len() / 1_000_000).unwrap_or(0);
-        return ModelInfo { name: name.to_string(), downloaded: true, path: path.to_string_lossy().to_string(), size_mb: size };
+    let is_downloaded = files.iter().all(|f| dir.join(f).exists());
+    if is_downloaded {
+        if let Some(path) = files.iter().map(|f| dir.join(f)).find(|p| p.exists()) {
+            let size = std::fs::metadata(&path).map(|m| m.len() / 1_000_000).unwrap_or(0);
+            return ModelInfo { name: name.to_string(), downloaded: true, path: path.to_string_lossy().to_string(), size_mb: size };
+        }
     }
     ModelInfo { name: name.to_string(), downloaded: false, path: dir.to_string_lossy().to_string(), size_mb: 0 }
 }
@@ -86,18 +108,38 @@ fn check_model(name: &str, dir: &std::path::Path, files: &[&str]) -> ModelInfo {
 pub async fn delete_model(name: String) -> Result<String, String> {
     let home = dirs::home_dir().unwrap_or_default();
     let cache = home.join(".cache").join("chordvoxmini");
-    let dir = match name.as_str() {
-        "SenseVoice" => cache.join("sensevoice-models"),
-        "Paraformer" => cache.join("paraformer-models").join("paraformer-large-zh"),
+    let (dir, files) = match name.as_str() {
+        "SenseVoice Small Q3_K" => (cache.join("sensevoice-models"), vec!["sense-voice-small-q3_k.gguf"]),
+        "SenseVoice Small Q4_0" => (cache.join("sensevoice-models"), vec!["sense-voice-small-q4_0.gguf"]),
+        "SenseVoice Small Q4_1" => (cache.join("sensevoice-models"), vec!["sense-voice-small-q4_1.gguf"]),
+        "SenseVoice Small Q4_K" => (cache.join("sensevoice-models"), vec!["sense-voice-small-q4_k.gguf"]),
+        "SenseVoice Small Q5_0" => (cache.join("sensevoice-models"), vec!["sense-voice-small-q5_0.gguf"]),
+        "SenseVoice Small Q5_K" => (cache.join("sensevoice-models"), vec!["sense-voice-small-q5_k.gguf"]),
+        "SenseVoice Small Q6_K" => (cache.join("sensevoice-models"), vec!["sense-voice-small-q6_k.gguf"]),
+        "SenseVoice Small Q8_0" => (cache.join("sensevoice-models"), vec!["sense-voice-small-q8_0.gguf"]),
+        "SenseVoice Small FP16" => (cache.join("sensevoice-models"), vec!["sense-voice-small-fp16.gguf"]),
+        "SenseVoice Small FP32" => (cache.join("sensevoice-models"), vec!["sense-voice-small-fp32.gguf"]),
+        "Paraformer-Large" => (cache.join("paraformer-models").join("paraformer-large-zh"), vec!["model.onnx", "tokens.txt"]),
         _ => return Err(format!("Unknown model: {}", name)),
     };
     if !dir.exists() { return Err("Model directory not found".into()); }
+    
     let mut total = 0u64;
-    for entry in std::fs::read_dir(&dir).map_err(|e| e.to_string())? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let path = entry.path();
-        if path.is_file() { total += path.metadata().map(|m| m.len()).unwrap_or(0); std::fs::remove_file(&path).map_err(|e| e.to_string())?; }
+    for file in &files {
+        let path = dir.join(file);
+        if path.exists() {
+            total += std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+        }
     }
+    
+    // Clean up empty directories
+    if let Ok(mut entries) = std::fs::read_dir(&dir) {
+        if entries.next().is_none() {
+            let _ = std::fs::remove_dir(&dir);
+        }
+    }
+    
     Ok(format!("Deleted {} (freed {}MB)", name, total / 1_000_000))
 }
 
@@ -105,10 +147,12 @@ pub async fn delete_model(name: String) -> Result<String, String> {
 pub async fn open_model_dir(name: String) -> Result<(), String> {
     let home = dirs::home_dir().unwrap_or_default();
     let cache = home.join(".cache").join("chordvoxmini");
-    let dir = match name.as_str() {
-        "SenseVoice" => cache.join("sensevoice-models"),
-        "Paraformer" => cache.join("paraformer-models").join("paraformer-large-zh"),
-        _ => return Err(format!("Unknown model: {}", name)),
+    let dir = if name.starts_with("SenseVoice") {
+        cache.join("sensevoice-models")
+    } else if name == "Paraformer-Large" {
+        cache.join("paraformer-models").join("paraformer-large-zh")
+    } else {
+        return Err(format!("Unknown model: {}", name));
     };
     let _ = std::fs::create_dir_all(&dir);
     opener::open(&dir).map_err(|e| e.to_string())
@@ -121,7 +165,7 @@ pub async fn transcribe_audio(state: tauri::State<'_, AppState>, audio_data: Vec
     let result = match settings.provider.as_str() {
         "sensevoice" => {
             let binary = find_binary(&["sense-voice-main"], &res_dir).await;
-            let model = find_model("sensevoice").await;
+            let model = find_model("sensevoice", &settings.sensevoice_model).await;
             match (binary, model) {
                 (Some(b), Some(m)) => transcription::transcribe_sensevoice(&audio_data, &m, &b, &settings.language, &res_dir).await,
                 (None, _) => transcription::TranscriptionResult { success: false, text: String::new(), error: Some("sense-voice-main not found.".into()) },
@@ -130,7 +174,7 @@ pub async fn transcribe_audio(state: tauri::State<'_, AppState>, audio_data: Vec
         }
         "paraformer" => {
             let binary = find_binary(&["sherpa-onnx-ws-linux-x64", "sherpa-onnx-ws"], &res_dir).await;
-            let model = find_model("paraformer").await;
+            let model = find_model("paraformer", &settings.paraformer_model).await;
             eprintln!("[Kazamo] Paraformer: binary={:?}, model={:?}, res_dir={}", binary, model, res_dir.display());
             match (binary, model) {
                 (Some(b), Some(m)) => {
@@ -178,12 +222,27 @@ async fn find_binary(names: &[&str], resource_dir: &PathBuf) -> Option<String> {
     None
 }
 
-async fn find_model(model_type: &str) -> Option<String> {
+async fn find_model(model_type: &str, active_model_name: &str) -> Option<String> {
     let home = dirs::home_dir().unwrap_or_default();
     let cache = home.join(".cache").join("chordvoxmini");
-    let paths: Vec<PathBuf> = match model_type {
-        "sensevoice" => { let d = cache.join("sensevoice-models"); vec![d.join("sense-voice-small-q4_k.gguf"), d.join("sense-voice-small-q8_0.gguf")] }
-        "paraformer" => vec![cache.join("paraformer-models").join("paraformer-large-zh").join("model.onnx")],
+    let paths: Vec<PathBuf> = match (model_type, active_model_name) {
+        // SenseVoice variants - match the exact names from list_models and UI selection
+        ("sensevoice", "SenseVoice Small Q3_K") => vec![cache.join("sensevoice-models").join("sense-voice-small-q3_k.gguf")],
+        ("sensevoice", "SenseVoice Small Q4_0") => vec![cache.join("sensevoice-models").join("sense-voice-small-q4_0.gguf")],
+        ("sensevoice", "SenseVoice Small Q4_1") => vec![cache.join("sensevoice-models").join("sense-voice-small-q4_1.gguf")],
+        ("sensevoice", "SenseVoice Small Q4_K") => vec![cache.join("sensevoice-models").join("sense-voice-small-q4_k.gguf")],
+        ("sensevoice", "SenseVoice Small Q5_0") => vec![cache.join("sensevoice-models").join("sense-voice-small-q5_0.gguf")],
+        ("sensevoice", "SenseVoice Small Q5_K") => vec![cache.join("sensevoice-models").join("sense-voice-small-q5_k.gguf")],
+        ("sensevoice", "SenseVoice Small Q6_K") => vec![cache.join("sensevoice-models").join("sense-voice-small-q6_k.gguf")],
+        ("sensevoice", "SenseVoice Small Q8_0") => vec![cache.join("sensevoice-models").join("sense-voice-small-q8_0.gguf")],
+        ("sensevoice", "SenseVoice Small FP16") => vec![cache.join("sensevoice-models").join("sense-voice-small-fp16.gguf")],
+        ("sensevoice", "SenseVoice Small FP32") => vec![cache.join("sensevoice-models").join("sense-voice-small-fp32.gguf")],
+        ("sensevoice", _) => {
+            // Fallback for unknown or legacy names: prefer Q4_K then Q8_0
+            let d = cache.join("sensevoice-models");
+            vec![d.join("sense-voice-small-q4_k.gguf"), d.join("sense-voice-small-q8_0.gguf")]
+        }
+        ("paraformer", _) => vec![cache.join("paraformer-models").join("paraformer-large-zh").join("model.onnx")],
         _ => vec![],
     };
     for p in paths {
@@ -222,12 +281,17 @@ pub async fn download_model(name: String, app: tauri::AppHandle) -> Result<Strin
     let cache = home.join(".cache").join("chordvoxmini");
 
     let (dir, url, filename) = match name.as_str() {
-        "SenseVoice" => {
-            let dir = cache.join("sensevoice-models");
-            (dir, "https://huggingface.co/lovemefan/sense-voice-gguf/resolve/main/sense-voice-small-q4_k.gguf", "sense-voice-small-q4_k.gguf")
-        }
-        "Paraformer" => {
-            // Paraformer is a directory with multiple files - download model.onnx + tokens.txt
+        "SenseVoice Small Q3_K" => (cache.join("sensevoice-models"), "https://huggingface.co/lovemefan/sense-voice-gguf/resolve/main/sense-voice-small-q3_k.gguf", "sense-voice-small-q3_k.gguf"),
+        "SenseVoice Small Q4_0" => (cache.join("sensevoice-models"), "https://huggingface.co/lovemefan/sense-voice-gguf/resolve/main/sense-voice-small-q4_0.gguf", "sense-voice-small-q4_0.gguf"),
+        "SenseVoice Small Q4_1" => (cache.join("sensevoice-models"), "https://huggingface.co/lovemefan/sense-voice-gguf/resolve/main/sense-voice-small-q4_1.gguf", "sense-voice-small-q4_1.gguf"),
+        "SenseVoice Small Q4_K" => (cache.join("sensevoice-models"), "https://huggingface.co/lovemefan/sense-voice-gguf/resolve/main/sense-voice-small-q4_k.gguf", "sense-voice-small-q4_k.gguf"),
+        "SenseVoice Small Q5_0" => (cache.join("sensevoice-models"), "https://huggingface.co/lovemefan/sense-voice-gguf/resolve/main/sense-voice-small-q5_0.gguf", "sense-voice-small-q5_0.gguf"),
+        "SenseVoice Small Q5_K" => (cache.join("sensevoice-models"), "https://huggingface.co/lovemefan/sense-voice-gguf/resolve/main/sense-voice-small-q5_k.gguf", "sense-voice-small-q5_k.gguf"),
+        "SenseVoice Small Q6_K" => (cache.join("sensevoice-models"), "https://huggingface.co/lovemefan/sense-voice-gguf/resolve/main/sense-voice-small-q6_k.gguf", "sense-voice-small-q6_k.gguf"),
+        "SenseVoice Small Q8_0" => (cache.join("sensevoice-models"), "https://huggingface.co/lovemefan/sense-voice-gguf/resolve/main/sense-voice-small-q8_0.gguf", "sense-voice-small-q8_0.gguf"),
+        "SenseVoice Small FP16" => (cache.join("sensevoice-models"), "https://huggingface.co/lovemefan/sense-voice-gguf/resolve/main/sense-voice-small-fp16.gguf", "sense-voice-small-fp16.gguf"),
+        "SenseVoice Small FP32" => (cache.join("sensevoice-models"), "https://huggingface.co/lovemefan/sense-voice-gguf/resolve/main/sense-voice-small-fp32.gguf", "sense-voice-small-fp32.gguf"),
+        "Paraformer-Large" => {
             let dir = cache.join("paraformer-models").join("paraformer-large-zh");
             return download_paraformer(&dir, &app).await;
         }
@@ -240,14 +304,18 @@ pub async fn download_model(name: String, app: tauri::AppHandle) -> Result<Strin
         return Ok(format!("{} already downloaded", name));
     }
 
-    eprintln!("[Kazamo] Downloading {} to {}", name, dest.display());
+    let temp = dir.join(format!("{}.part", filename));
+    // Clean any previous partial
+    let _ = std::fs::remove_file(&temp);
+
+    eprintln!("[Kazamo] Downloading {} to {} (via {})", name, dest.display(), temp.display());
     let _ = app.emit("download-progress", serde_json::json!({ "model": name, "status": "downloading", "percent": 0 }));
 
     let client = reqwest::Client::new();
     let resp = client.get(url).send().await.map_err(|e| format!("Download failed: {}", e))?;
     let total = resp.content_length().unwrap_or(0);
 
-    let mut file = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
+    let mut file = std::fs::File::create(&temp).map_err(|e| e.to_string())?;
     use std::io::Write;
     let mut downloaded: u64 = 0;
 
@@ -263,6 +331,9 @@ pub async fn download_model(name: String, app: tauri::AppHandle) -> Result<Strin
         }
     }
 
+    // Atomic move: only now the final file appears
+    std::fs::rename(&temp, &dest).map_err(|e| e.to_string())?;
+
     let _ = app.emit("download-progress", serde_json::json!({ "model": name, "status": "complete", "percent": 100 }));
     Ok(format!("{} downloaded ({}MB)", name, downloaded / 1_000_000))
 }
@@ -274,12 +345,8 @@ async fn download_paraformer(dir: &std::path::Path, app: &tauri::AppHandle) -> R
 
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
 
-    let files = vec![
-        ("https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-paraformer-zh-2023-09-14.tar.bz2", "model.onnx"),
-    ];
-
     // For simplicity, download model.onnx directly if available
-    let model_url = "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-2023-09-14/resolve/main/model.onnx";
+    let model_url = "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-2023-09-14/resolve/main/model.int8.onnx";
     let tokens_url = "https://huggingface.co/csukuangfj/sherpa-onnx-paraformer-zh-2023-09-14/resolve/main/tokens.txt";
 
     let client = reqwest::Client::new();
@@ -288,15 +355,18 @@ async fn download_paraformer(dir: &std::path::Path, app: &tauri::AppHandle) -> R
         let dest = dir.join(filename);
         if dest.exists() { continue; }
 
+        let temp = dir.join(format!("{}.part", filename));
+        let _ = std::fs::remove_file(&temp);
+
         eprintln!("[Kazamo] Downloading Paraformer/{}", filename);
-        let _ = app.emit("download-progress", serde_json::json!({ "model": "Paraformer", "status": "downloading", "file": filename }));
+        let _ = app.emit("download-progress", serde_json::json!({ "model": "Paraformer-Large", "status": "downloading", "file": filename }));
 
         let resp = client.get(url).send().await.map_err(|e| format!("Download {} failed: {}", filename, e))?;
         if !resp.status().is_success() {
             return Err(format!("Download {} failed: HTTP {}", filename, resp.status()));
         }
         let total = resp.content_length().unwrap_or(0);
-        let mut file = std::fs::File::create(&dest).map_err(|e| e.to_string())?;
+        let mut file = std::fs::File::create(&temp).map_err(|e| e.to_string())?;
         let mut downloaded: u64 = 0;
         let mut stream = resp.bytes_stream();
         while let Some(chunk) = stream.next().await {
@@ -305,11 +375,14 @@ async fn download_paraformer(dir: &std::path::Path, app: &tauri::AppHandle) -> R
             downloaded += chunk.len() as u64;
             if total > 0 {
                 let pct = (downloaded * 100 / total) as u32;
-                let _ = app.emit("download-progress", serde_json::json!({ "model": "Paraformer", "status": "downloading", "file": filename, "percent": pct }));
+                let _ = app.emit("download-progress", serde_json::json!({ "model": "Paraformer-Large", "status": "downloading", "file": filename, "percent": pct }));
             }
         }
+
+        // Only promote to final name when this file is fully written
+        std::fs::rename(&temp, &dest).map_err(|e| e.to_string())?;
     }
 
-    let _ = app.emit("download-progress", serde_json::json!({ "model": "Paraformer", "status": "complete", "percent": 100 }));
+    let _ = app.emit("download-progress", serde_json::json!({ "model": "Paraformer-Large", "status": "complete", "percent": 100 }));
     Ok("Paraformer downloaded".to_string())
 }

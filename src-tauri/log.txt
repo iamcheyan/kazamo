@@ -1,0 +1,9 @@
+[2026-06-13 23:19:49] [error] handle_read_handshake error: websocketpp.transport:7 (End of File)
+[2026-06-13 23:19:49] [connect] WebSocket Connection 127.0.0.1:34750 v13 "" / 101
+[2026-06-13 23:19:49] [error] handle_read_frame error: websocketpp.transport:7 (End of File)
+[2026-06-13 23:54:03] [error] handle_read_handshake error: websocketpp.transport:7 (End of File)
+[2026-06-13 23:54:03] [connect] WebSocket Connection 127.0.0.1:47012 v13 "" / 101
+[2026-06-13 23:54:13] [error] handle_read_handshake error: websocketpp.transport:7 (End of File)
+[2026-06-13 23:54:13] [connect] WebSocket Connection 127.0.0.1:53506 v13 "" / 101
+[2026-06-13 23:54:21] [error] handle_read_handshake error: websocketpp.transport:7 (End of File)
+[2026-06-13 23:54:21] [connect] WebSocket Connection 127.0.0.1:47858 v13 "" / 101
