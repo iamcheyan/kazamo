@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
 import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Icon } from "./icons";
@@ -249,11 +248,6 @@ export default function App() {
     const scale = zoom / 100;
     const newW = Math.round(BASE_WINDOW.width * scale);
     const newH = Math.round(BASE_WINDOW.height * scale);
-
-    // Set webview zoom factor
-    try {
-      getCurrentWebview().setZoom(scale).catch(() => {});
-    } catch {}
 
     appWindow.setSize(new LogicalSize(newW, newH)).then(() => {
       appWindow.center().catch(() => {});
