@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
-import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { Icon } from "./icons";
@@ -13,12 +14,6 @@ interface ModelInfo { name: string; downloaded: boolean; path: string; size_mb: 
 
 const appWindow = getCurrentWindow();
 const radius = 12;
-const BASE_WINDOW = { width: 520, height: 560 };
-const SUPPORTED_ZOOMS = [100, 110, 125, 150] as const;
-
-function normalizeZoom(value: number) {
-  return SUPPORTED_ZOOMS.includes(value as (typeof SUPPORTED_ZOOMS)[number]) ? value : 100;
-}
 
 const LANGUAGES = [
   { value: "auto", label: "🌐 Auto" },
@@ -204,7 +199,7 @@ export default function App() {
   const [themeMode, setThemeMode] = useState("system");
   const [theme, setTheme] = useState<Theme>(getSystemTheme() === "dark" ? dark : light);
   const [zoom, setZoom] = useState(() => {
-    try { return normalizeZoom(Number(localStorage.getItem("kazamo-zoom"))); } catch { return 100; }
+    try { return Number(localStorage.getItem("kazamo-zoom")) || 100; } catch { return 100; }
   });
 
   // Load saved settings
@@ -243,15 +238,12 @@ export default function App() {
     return () => window.removeEventListener("kazamo-navigate", handler);
   }, []);
 
-  // Update window size on zoom change and center the window
+  // Apply webview zoom (scales all CSS uniformly, like browser zoom)
   useEffect(() => {
     const scale = zoom / 100;
-    const newW = Math.round(BASE_WINDOW.width * scale);
-    const newH = Math.round(BASE_WINDOW.height * scale);
-
-    appWindow.setSize(new LogicalSize(newW, newH)).then(() => {
-      appWindow.center().catch(() => {});
-    }).catch(() => {});
+    try {
+      getCurrentWebview().setZoom(scale).catch(() => {});
+    } catch {}
   }, [zoom]);
 
   const setThemeModeAndApply = (mode: string) => {
