@@ -42,6 +42,20 @@ const ZOOM_OPTIONS = [
   { value: "300", label: "300%" },
 ];
 
+const MODEL_DETAILS: Record<string, { desc: string; tag?: string; tagColor?: string }> = {
+  "SenseVoice Small Q3_K": { desc: "3-bit 量化，极速，体积最小，准确率稍低", tag: "极速", tagColor: "#a1a1aa" },
+  "SenseVoice Small Q4_0": { desc: "4-bit 标准量化，速度快，内存占用低", tag: "标准", tagColor: "#3b82f6" },
+  "SenseVoice Small Q4_1": { desc: "4-bit 优化量化，内存占用低，准确度比 Q4_0 稍好", tag: "标准", tagColor: "#3b82f6" },
+  "SenseVoice Small Q4_K": { desc: "4-bit 混合量化 (K-means)，速度与准确率高度平衡", tag: "推荐", tagColor: "#10b981" },
+  "SenseVoice Small Q5_0": { desc: "5-bit 标准量化，准确率好，速度较快", tag: "高精度", tagColor: "#8b5cf6" },
+  "SenseVoice Small Q5_K": { desc: "5-bit 混合量化 (K-means)，高准确率，运行流畅", tag: "推荐", tagColor: "#10b981" },
+  "SenseVoice Small Q6_K": { desc: "6-bit 混合量化，极度接近无损 FP16 准确度", tag: "超清", tagColor: "#f59e0b" },
+  "SenseVoice Small Q8_0": { desc: "8-bit 高精度量化，准确度极高，适合高配置电脑", tag: "极清", tagColor: "#ef4444" },
+  "SenseVoice Small FP16": { desc: "16-bit 半精度浮点，无损音质，运算速度较慢", tag: "无损", tagColor: "#ec4899" },
+  "SenseVoice Small FP32": { desc: "32-bit 全精度浮点，完整未压缩模型，最慢", tag: "完整", tagColor: "#6b7280" },
+  "Paraformer-Large": { desc: "阿里开源高精度中文识别模型，适合中文长语音", tag: "中文特化", tagColor: "#f59e0b" },
+};
+
 const ThemeCtx = createContext<{ theme: Theme; mode: string; setThemeMode: (m: string) => void }>({ theme: light, mode: "light", setThemeMode: () => {} });
 const useT = () => useContext(ThemeCtx);
 
@@ -221,7 +235,7 @@ export default function App() {
 
   // Apply theme to body
   useEffect(() => {
-    document.body.style.background = theme.bg;
+    document.body.style.background = "transparent";
     document.body.style.color = theme.text;
     const actualTheme = themeMode === "system" ? (getSystemTheme() === "dark" ? "dark" : "light") : themeMode;
     document.body.setAttribute("data-theme", actualTheme);
@@ -400,6 +414,13 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         ))}
       </div>
 
+      {/* Provider description */}
+      <div style={{ fontSize: 11, color: T.muted, marginBottom: 8, padding: "0 4px", lineHeight: 1.45 }}>
+        {provider === "sensevoice" 
+          ? "💡 SenseVoice: 多语言极速识别 (中/英/日/韩/粤)，支持检测情绪及笑声、掌声、BGM等事件。"
+          : "💡 Paraformer: 专注中文高准确率语音识别，适合大段中文长语音识别。"}
+      </div>
+
       {/* Active model info / download prompt */}
       <div className="model-summary">
         {hasModel ? (
@@ -423,10 +444,25 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         )}
       </div>
 
-      {/* Transcription */}
-      <div className="transcription-panel" style={{ borderRadius: radius, border: `1px solid ${T.border}`, background: T.surface }}>
-        <p style={{ fontSize: 13, color: transcript ? T.text : T.muted, fontStyle: transcript ? "normal" : "italic", lineHeight: 1.65, whiteSpace: "pre-wrap" }}>{transcript || "Transcription will appear here..."}</p>
-      </div>
+      {/* Transcription (Editable text box) */}
+      <textarea
+        className="transcription-panel"
+        value={transcript}
+        onChange={(e) => setTranscript(e.target.value)}
+        placeholder="Transcription will appear here..."
+        style={{
+          borderRadius: radius,
+          border: `1px solid ${T.border}`,
+          background: T.surface,
+          color: transcript ? T.text : T.muted,
+          fontSize: 13,
+          lineHeight: 1.65,
+          resize: "none",
+          outline: "none",
+          width: "100%",
+          fontFamily: "inherit"
+        }}
+      />
 
       <div className="transcript-footer">
         <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -586,15 +622,15 @@ function ModelsPage() {
   return (
     <div style={{ padding: "12px 16px" }}>
       {/* Tabs */}
-      <div style={{ display: "flex", gap: 2, background: T.surfaceAlt, borderRadius: 6, padding: 2, marginBottom: 12 }}>
+      <div className="provider-tabs" style={{ background: T.surfaceAlt, marginBottom: "12px" }}>
         {["sensevoice", "paraformer"].map((p) => (
           <button key={p} onClick={() => setActiveTab(p as any)}
             style={{
-              flex: 1, padding: "5px 0", borderRadius: 4, border: "none", cursor: "pointer",
+              flex: 1, padding: "8px 0", borderRadius: 7, border: "none", cursor: "pointer",
               background: activeTab === p ? T.surface : "transparent",
               color: activeTab === p ? T.text : T.muted,
-              fontSize: 12, fontWeight: activeTab === p ? 600 : 400,
-              boxShadow: activeTab === p ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
+              fontSize: 13, fontWeight: 500,
+              boxShadow: activeTab === p ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
               transition: "all 0.15s"
             }}
           >{p === "sensevoice" ? "SenseVoice" : "Paraformer"}</button>
@@ -624,7 +660,7 @@ function ModelsPage() {
               onClick={() => { if (effectiveDownloaded) selectModel(m.name); }}
               style={{
                 display: "flex", alignItems: "center", gap: 10,
-                padding: "8px 12px",
+                padding: "10px 14px",
                 borderLeft: isActive ? `3px solid ${T.green}` : "3px solid transparent",
                 borderBottom: i < filteredModels.length - 1 ? `1px solid ${T.border}` : "none",
                 background: isActive ? `${T.green}12` : "transparent",
@@ -634,15 +670,33 @@ function ModelsPage() {
               onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = T.surfaceAlt; }}
               onMouseLeave={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
             >
-              {/* Name + size */}
-              <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{
-                  fontSize: 12, fontWeight: isActive ? 600 : 400,
-                  color: isActive ? T.green : T.text,
-                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
-                }}>{m.name}</span>
-                {effectiveDownloaded && (
-                  <span style={{ fontSize: 10, color: T.muted, flexShrink: 0 }}>{m.size_mb}MB</span>
+              {/* Name + size + description */}
+              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{
+                    fontSize: 13, fontWeight: isActive ? 600 : 500,
+                    color: isActive ? T.green : T.text,
+                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
+                  }}>{m.name}</span>
+                  {MODEL_DETAILS[m.name]?.tag && (
+                    <span style={{
+                      fontSize: 9,
+                      fontWeight: 600,
+                      padding: "1px 6px",
+                      borderRadius: 4,
+                      background: `${MODEL_DETAILS[m.name].tagColor}22`,
+                      color: MODEL_DETAILS[m.name].tagColor,
+                      border: `1px solid ${MODEL_DETAILS[m.name].tagColor}33`,
+                    }}>{MODEL_DETAILS[m.name].tag}</span>
+                  )}
+                  {effectiveDownloaded && (
+                    <span style={{ fontSize: 10, color: T.muted, flexShrink: 0 }}>{m.size_mb}MB</span>
+                  )}
+                </div>
+                {MODEL_DETAILS[m.name] && (
+                  <span style={{ fontSize: 11, color: T.muted, lineHeight: 1.3 }}>
+                    {MODEL_DETAILS[m.name].desc}
+                  </span>
                 )}
               </div>
 
