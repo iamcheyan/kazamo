@@ -194,6 +194,8 @@ async fn find_binary(names: &[&str], resource_dir: &PathBuf) -> Option<String> {
     for &name in names {
         let bundled = resource_dir.join("bin").join(name);
         if tokio::fs::metadata(&bundled).await.is_ok() { return Some(bundled.to_string_lossy().to_string()); }
+        let bundled2 = resource_dir.join("resources").join("bin").join(name);
+        if tokio::fs::metadata(&bundled2).await.is_ok() { return Some(bundled2.to_string_lossy().to_string()); }
         if let Ok(out) = tokio::process::Command::new("which").arg(name).output().await {
             if out.status.success() { let p = String::from_utf8_lossy(&out.stdout).trim().to_string(); if !p.is_empty() { return Some(p); } }
         }
@@ -256,6 +258,15 @@ async fn find_model(model_type: &str, active_model_name: &str) -> Option<String>
                     }
                 }
             }
+            if model_type == "sensevoice" {
+                // SenseVoice GGUF models need tokens.txt alongside
+                if let Some(parent) = p.parent() {
+                    let tokens = parent.join("tokens.txt");
+                    if tokio::fs::metadata(&tokens).await.is_err() {
+                        continue; // missing tokens.txt, not ready
+                    }
+                }
+            }
             return Some(p.to_string_lossy().to_string());
         }
     }
@@ -299,6 +310,9 @@ pub async fn download_model(name: String, app: tauri::AppHandle) -> Result<Strin
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let dest = dir.join(filename);
     if dest.exists() {
+        // Ensure tokens.txt is also present for SenseVoice models
+        let client = reqwest::Client::new();
+        ensure_sensevoice_tokens(&dir, &client).await?;
         return Ok(format!("{} already downloaded", name));
     }
 
@@ -332,8 +346,29 @@ pub async fn download_model(name: String, app: tauri::AppHandle) -> Result<Strin
     // Atomic move: only now the final file appears
     std::fs::rename(&temp, &dest).map_err(|e| e.to_string())?;
 
+    // Also download tokens.txt for SenseVoice models
+    ensure_sensevoice_tokens(&dir, &client).await?;
+
     let _ = app.emit("download-progress", serde_json::json!({ "model": name, "status": "complete", "percent": 100 }));
     Ok(format!("{} downloaded ({}MB)", name, downloaded / 1_000_000))
+}
+
+/// Download tokens.txt for SenseVoice GGUF models (shared across all variants)
+async fn ensure_sensevoice_tokens(dir: &std::path::Path, client: &reqwest::Client) -> Result<(), String> {
+    use std::io::Write;
+    let tokens_dest = dir.join("tokens.txt");
+    if tokens_dest.exists() { return Ok(()); }
+
+    let url = "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt";
+    let resp = client.get(url).send().await.map_err(|e| format!("Download tokens.txt failed: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("Download tokens.txt failed: HTTP {}", resp.status()));
+    }
+    let bytes = resp.bytes().await.map_err(|e| format!("Download tokens.txt error: {}", e))?;
+    let mut file = std::fs::File::create(&tokens_dest).map_err(|e| e.to_string())?;
+    file.write_all(&bytes).map_err(|e| e.to_string())?;
+    eprintln!("[Kazamo] Downloaded tokens.txt to {}", tokens_dest.display());
+    Ok(())
 }
 
 async fn download_paraformer(dir: &std::path::Path, app: &tauri::AppHandle) -> Result<String, String> {

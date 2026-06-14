@@ -1,10 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::process::Stdio;
-use tokio::process::{Child, Command};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use std::sync::{Arc, LazyLock};
-use tokio::sync::Mutex;
+use tokio::process::Command;
+use tokio::io::{AsyncBufReadExt, BufReader};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TranscriptionResult {
@@ -13,83 +11,37 @@ pub struct TranscriptionResult {
     pub error: Option<String>,
 }
 
-struct SenseVoiceProc {
-    child: Child,
-    stdin: tokio::process::ChildStdin,
-    stdout: BufReader<tokio::process::ChildStdout>,
-}
-
-static SENSEVOICE_PROC: LazyLock<Arc<Mutex<Option<SenseVoiceProc>>>> =
-    LazyLock::new(|| Arc::new(Mutex::new(None)));
-
-async fn get_or_start_sv_proc(
-    model_path: &str,
-    tokens_path: &str,
-    language: &str,
-    resource_dir: &Path,
-) -> Result<Arc<Mutex<Option<SenseVoiceProc>>>, String> {
-    {
-        let proc = SENSEVOICE_PROC.lock().await;
-        if proc.is_some() {
-            return Ok(Arc::clone(&SENSEVOICE_PROC));
-        }
+/// Find a binary in resource directories
+fn find_binary_local(names: &[&str], resource_dir: &Path) -> Option<String> {
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    for &name in names {
+        candidates.push(resource_dir.join("bin").join(name));
+        candidates.push(resource_dir.join("resources").join("bin").join(name));
     }
-
-    let script_name = "sensevoice-offline.py";
-    let mut script_candidates = vec![resource_dir.join("bin").join(script_name)];
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            script_candidates.push(dir.join("resources").join("bin").join(script_name));
+            for &name in names {
+                candidates.push(dir.join("resources").join("bin").join(name));
+            }
         }
     }
     if let Ok(cwd) = std::env::current_dir() {
-        script_candidates.push(cwd.join("resources").join("bin").join(script_name));
-        script_candidates.push(cwd.join("src-tauri").join("resources").join("bin").join(script_name));
-    }
-    let script = script_candidates
-        .iter()
-        .find(|p| p.exists())
-        .ok_or_else(|| format!("sensevoice-offline.py not found (searched: {:?})", script_candidates))?;
-
-    let mut child = Command::new("python3")
-        .arg(script)
-        .arg(model_path)
-        .arg(tokens_path)
-        .arg(language)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to start sensevoice-offline.py: {}", e))?;
-
-    let stdin = child.stdin.take().ok_or("No stdin")?;
-    let stdout = child.stdout.take().ok_or("No stdout")?;
-    let mut stdout = BufReader::new(stdout);
-
-    let mut line = String::new();
-    stdout.read_line(&mut line).await.map_err(|e| format!("Read ready: {}", e))?;
-    let line = line.trim();
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
-        if json.get("error").is_some() {
-            let _ = child.kill().await;
-            return Err(format!("SenseVoice init failed: {}", line));
+        for &name in names {
+            candidates.push(cwd.join("resources").join("bin").join(name));
+            candidates.push(cwd.join("src-tauri").join("resources").join("bin").join(name));
         }
     }
-
-    eprintln!("[Kazamo] SenseVoice: process ready");
-    let mut proc = SENSEVOICE_PROC.lock().await;
-    *proc = Some(SenseVoiceProc { child, stdin, stdout });
-    drop(proc);
-    Ok(Arc::clone(&SENSEVOICE_PROC))
+    candidates.iter().find(|p| p.exists()).map(|p| p.to_string_lossy().to_string())
 }
 
 pub async fn transcribe_sensevoice(
     audio_data: &[u8],
     model_path: &str,
-    _binary_path: &str,
+    binary_path: &str,
     language: &str,
     resource_dir: &Path,
 ) -> TranscriptionResult {
+    // Convert to 16kHz mono WAV
     let tmp_in = format!("/tmp/kazamo-sv-in-{}.wav", std::process::id());
     let tmp_out = format!("/tmp/kazamo-sv-16k-{}.wav", std::process::id());
 
@@ -101,7 +53,6 @@ pub async fn transcribe_sensevoice(
         .args(["-y", "-i", &tmp_in, "-ar", "16000", "-ac", "1", "-af", "volume=20dB", "-f", "wav", &tmp_out])
         .stdout(Stdio::null()).stderr(Stdio::null())
         .status().await;
-
     let _ = tokio::fs::remove_file(&tmp_in).await;
 
     match status {
@@ -113,62 +64,100 @@ pub async fn transcribe_sensevoice(
         _ => {}
     }
 
-    // Find tokens.txt in model directory
-    let model_dir = Path::new(model_path).parent().unwrap_or(Path::new("."));
-    let tokens_path = model_dir.join("tokens.txt");
-    if !tokens_path.exists() {
-        let _ = tokio::fs::remove_file(&tmp_out).await;
-        return err(&format!("tokens.txt not found in {:?}", model_dir));
-    }
+    // Find sense-voice-main binary
+    let binary = if !binary_path.is_empty() && Path::new(binary_path).exists() {
+        binary_path.to_string()
+    } else {
+        match find_binary_local(&["sense-voice-main"], resource_dir) {
+            Some(b) => b,
+            None => {
+                let _ = tokio::fs::remove_file(&tmp_out).await;
+                return err("sense-voice-main binary not found");
+            }
+        }
+    };
 
     let lang = match language { "zh"|"en"|"ja"|"ko"|"yue" => language, _ => "auto" };
 
-    let proc_ref = match get_or_start_sv_proc(
-        model_path,
-        &tokens_path.to_string_lossy(),
-        lang,
-        resource_dir,
-    ).await {
-        Ok(r) => r,
-        Err(e) => { let _ = tokio::fs::remove_file(&tmp_out).await; return err(&e); }
-    };
-
-    let mut proc = proc_ref.lock().await;
-    let proc = match proc.as_mut() {
-        Some(p) => p,
-        None => { let _ = tokio::fs::remove_file(&tmp_out).await; return err("Process not started"); }
-    };
-
-    if let Err(e) = proc.stdin.write_all(format!("{}\n", tmp_out).as_bytes()).await {
-        let _ = tokio::fs::remove_file(&tmp_out).await;
-        return err(&format!("Write stdin: {}", e));
-    }
-
-    let mut line = String::new();
-    if let Err(e) = proc.stdout.read_line(&mut line).await {
-        let _ = tokio::fs::remove_file(&tmp_out).await;
-        return err(&format!("Read stdout: {}", e));
-    }
+    // Run sense-voice-main
+    eprintln!("[Kazamo] SenseVoice: running {} -m {} -l {} {}", binary, model_path, lang, tmp_out);
+    let output = Command::new(&binary)
+        .args(["-m", model_path, "-l", lang, &tmp_out])
+        .output().await;
 
     let _ = tokio::fs::remove_file(&tmp_out).await;
 
-    let line = line.trim();
-    if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
-        if let Some(err_msg) = json.get("error").and_then(|e| e.as_str()) {
-            return err(err_msg);
-        }
-        if let Some(text) = json.get("text").and_then(|t| t.as_str()) {
-            let text = text.trim().to_string();
+    match output {
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            let stdout = String::from_utf8_lossy(&out.stdout);
+
+            // Log stderr (model loading info)
+            for line in stderr.lines() {
+                if !line.is_empty() {
+                    eprintln!("[Kazamo/sensevoice] {}", line);
+                }
+            }
+
+            if !out.status.success() {
+                return err(&format!("sense-voice-main exited with {:?}", out.status.code()));
+            }
+
+            // Parse stdout: format is "[start-end] text" per segment
+            let text = stdout.trim();
             if text.is_empty() {
                 return err("No speech detected");
             }
-            return TranscriptionResult { success: true, text, error: None };
-        }
-    }
 
-    err(&format!("Unexpected output: {}", line))
+            // Extract text from "[timestamp] text" format, join multiple segments
+            let result: String = text.lines()
+                .filter_map(|line| {
+                    let line = line.trim();
+                    // Strip timestamp prefix: [0.00-1.23] text
+                    if let Some(bracket_end) = line.find(']') {
+                        let after = line[bracket_end + 1..].trim();
+                        if !after.is_empty() { Some(after) } else { None }
+                    } else if !line.is_empty() {
+                        Some(line)
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            // Strip SenseVoice tags like <|zh|><|NEUTRAL|><|Speech|>
+            let cleaned = strip_sensevoice_tags(&result);
+
+            if cleaned.trim().is_empty() {
+                return err("No speech detected");
+            }
+
+            TranscriptionResult { success: true, text: cleaned.trim().to_string(), error: None }
+        }
+        Err(e) => err(&format!("Failed to run sense-voice-main: {}", e)),
+    }
 }
 
 fn err(msg: &str) -> TranscriptionResult {
     TranscriptionResult { success: false, text: String::new(), error: Some(msg.to_string()) }
+}
+
+/// Strip SenseVoice tags like <|zh|>, <|NEUTRAL|>, <|Speech|>, <|woitn|>, etc.
+fn strip_sensevoice_tags(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '<' {
+            // Check if this starts a <|...|> tag
+            let rest: String = chars.clone().take_while(|&ch| ch != '>').collect();
+            if rest.starts_with('|') && rest.ends_with('|') {
+                // Skip past the closing '>'
+                for _ in 0..=rest.len() { chars.next(); }
+                continue;
+            }
+        }
+        result.push(c);
+    }
+    result
 }

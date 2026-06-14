@@ -3,20 +3,17 @@ set -e
 
 echo "=== Building Kazamo AppImage ==="
 
-# Step 1: Build frontend
-echo "[1/4] Building frontend..."
-npm run build
+# Step 1: Build Tauri (frontend + release + AppImage)
+# Note: tauri build automatically runs beforeBuildCommand (npm run build)
+echo "[1/3] Building Tauri release + AppImage..."
+npx tauri build --bundles appimage
 
-# Step 2: Build Tauri (release + AppImage)
-echo "[2/4] Building Tauri release..."
-cargo tauri build --bundles appimage
-
-# Step 3: Fix bundled libraries (INIT pointer corruption fix)
-echo "[3/4] Fixing AppImage bundled libraries..."
+# Step 2: Fix bundled libraries (INIT pointer corruption fix)
+echo "[2/3] Fixing AppImage bundled libraries..."
 bash fix-appimage.sh
 
-# Step 4: Repackage AppImage
-echo "[4/4] Repackaging AppImage..."
+# Step 3: Repackage AppImage
+echo "[3/3] Repackaging AppImage..."
 APPIMAGE_DIR="src-tauri/target/release/bundle/appimage"
 cd "$APPIMAGE_DIR"
 appimagetool Kazamo.AppDir Kazamo_0.1.0_amd64.AppImage
