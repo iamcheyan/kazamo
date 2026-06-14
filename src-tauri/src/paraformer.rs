@@ -46,6 +46,16 @@ pub async fn transcribe_paraformer(
     };
     eprintln!("[Kazamo] Paraformer: pcm_data size={}", pcm_data.len());
 
+    // Convert int16 PCM to float32 [-1, 1]
+    let samples: Vec<f32> = pcm_data
+        .chunks_exact(2)
+        .map(|c| i16::from_le_bytes([c[0], c[1]]) as f32 / 32768.0)
+        .collect();
+    let float_bytes: &[u8] = unsafe {
+        std::slice::from_raw_parts(samples.as_ptr() as *const u8, samples.len() * 4)
+    };
+    eprintln!("[Kazamo] Paraformer: converted to {} float32 samples ({} bytes)", samples.len(), float_bytes.len());
+
     // Set LD_LIBRARY_PATH: resources/bin + binary dir + fallback directories + existing
     let bin_dir = std::path::Path::new(binary_path).parent().unwrap_or(std::path::Path::new("."));
     let res_bin = resource_dir.join("bin");
@@ -113,10 +123,10 @@ pub async fn transcribe_paraformer(
     }
     eprintln!("[Kazamo] Paraformer: server ready");
 
-    // Send audio via WebSocket (raw PCM, no WAV header)
+    // Send audio via WebSocket (float32 PCM, no WAV header)
     let ws_url = format!("ws://127.0.0.1:{}", port);
     eprintln!("[Kazamo] Paraformer: sending audio to {}", ws_url);
-    let result = send_audio_ws(&ws_url, pcm_data, 16000).await;
+    let result = send_audio_ws(&ws_url, float_bytes, 16000, samples.len()).await;
     eprintln!("[Kazamo] Paraformer: result={:?}", result);
 
     // Cleanup
@@ -126,7 +136,7 @@ pub async fn transcribe_paraformer(
     result
 }
 
-async fn send_audio_ws(url: &str, audio_data: &[u8], sample_rate: u32) -> Result<String, String> {
+async fn send_audio_ws(url: &str, audio_data: &[u8], sample_rate: u32, num_samples: usize) -> Result<String, String> {
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::connect_async;
 
@@ -134,15 +144,15 @@ async fn send_audio_ws(url: &str, audio_data: &[u8], sample_rate: u32) -> Result
     let (mut ws, _) = connect_async(url).await.map_err(|e| format!("WS connect: {}", e))?;
     eprintln!("[Kazamo] Paraformer WS: connected");
 
-    // Build message: sample_rate (i32 LE) + data_length (i32 LE) + audio_data
+    // Build message: sample_rate (i32 LE) + num_samples (i32 LE) + float32 audio_data
     let msg = {
         let mut buf = Vec::with_capacity(8 + audio_data.len());
         buf.extend_from_slice(&(sample_rate as i32).to_le_bytes());
-        buf.extend_from_slice(&(audio_data.len() as i32).to_le_bytes());
+        buf.extend_from_slice(&(num_samples as i32).to_le_bytes());
         buf.extend_from_slice(audio_data);
         buf
     };
-    eprintln!("[Kazamo] Paraformer WS: sending {} bytes (rate={}, data_bytes={})", msg.len(), sample_rate, audio_data.len());
+    eprintln!("[Kazamo] Paraformer WS: sending {} bytes (rate={}, samples={})", msg.len(), sample_rate, num_samples);
 
     ws.send(tokio_tungstenite::tungstenite::Message::Binary(msg))
         .await.map_err(|e| format!("WS send: {}", e))?;
