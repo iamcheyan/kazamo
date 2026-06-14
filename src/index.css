@@ -308,8 +308,7 @@ select option { background: inherit; color: inherit; }
   align-items: center;
   justify-content: space-between;
   flex: 0 0 auto;
-  margin-top: 12px;
-  padding-top: 12px;
+  padding-top: 8px;
   font-size: 13px;
   transition: border-color 0.2s;
   color: var(--muted);

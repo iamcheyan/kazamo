@@ -71,6 +71,7 @@ pub async fn transcribe_paraformer(
             "--model-type=paraformer",
         ])
         .env("LD_LIBRARY_PATH", &ld_path)
+        .current_dir("/tmp")
         .stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to start sherpa-onnx-ws: {}", e))?;

@@ -71,6 +71,7 @@ pub async fn transcribe_sensevoice(
     let output = Command::new(binary_path)
         .args(["-m", model_path, "-l", lang, "-itn", &tmp_out])
         .env("LD_LIBRARY_PATH", &ld_path)
+        .current_dir("/tmp")
         .output()
         .await;
 
