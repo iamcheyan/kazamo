@@ -13,7 +13,6 @@ type RecordingState = "idle" | "recording" | "processing";
 interface ModelInfo { name: string; downloaded: boolean; path: string; size_mb: number; }
 
 const appWindow = getCurrentWindow();
-const radius = 12;
 
 const LANGUAGES = [
   { value: "auto", label: "🌐 Auto" },
@@ -79,10 +78,10 @@ function HeaderBar({ page, setPage }: { page: Page; setPage: (p: Page) => void }
       data-tauri-drag-region
       header={<Mie.Header title={titleText} />}
       left={
-        <div style={{ display: "flex", gap: 4 }}>
+        <div className="headerbar-left">
           {page !== "main" ? (
             <Mie.Button
-              icon={<span style={{ display: "flex", alignItems: "center" }}>{Icon.arrowLeft(14)}</span>}
+              icon={<span className="icon-wrap">{Icon.arrowLeft(14)}</span>}
               transparent
               onClick={() => setPage("main")}
               size="tiny"
@@ -90,14 +89,14 @@ function HeaderBar({ page, setPage }: { page: Page; setPage: (p: Page) => void }
           ) : (
             <>
               <Mie.Button
-                icon={<span style={{ display: "flex", alignItems: "center" }}>{Icon.package(14)}</span>}
+                icon={<span className="icon-wrap">{Icon.package(14)}</span>}
                 transparent
                 active={false}
                 onClick={() => setPage("models")}
                 size="tiny"
               />
               <Mie.Button
-                icon={<span style={{ display: "flex", alignItems: "center" }}>{Icon.settings(14)}</span>}
+                icon={<span className="icon-wrap">{Icon.settings(14)}</span>}
                 transparent
                 active={false}
                 onClick={() => setPage("settings")}
@@ -155,7 +154,7 @@ function SettingsPage({ zoom, setZoom }: { zoom: number; setZoom: (z: number) =>
   };
 
   const sectionLabel = (text: string) => (
-    <div className="settings-section-label" style={{ color: T.muted }}>{text}</div>
+    <div className="settings-section-label">{text}</div>
   );
 
   return (
@@ -197,8 +196,8 @@ function SettingsPage({ zoom, setZoom }: { zoom: number; setZoom: (z: number) =>
             const ev = new CustomEvent("kazamo-navigate", { detail: "help" });
             window.dispatchEvent(ev);
           }}
-          icon={<span style={{ display: "flex", alignItems: "center", color: T.textSecondary }}>{Icon.helpCircle(15)}</span>}
-          side={<span style={{ color: T.muted, fontSize: 14 }}>›</span>}
+          icon={<span className="settings-link-icon">{Icon.helpCircle(15)}</span>}
+          side={<span className="settings-link-arrow">›</span>}
         />
       </Mie.Rows>
     </div>
@@ -233,13 +232,31 @@ export default function App() {
     return () => mq.removeEventListener("change", handler);
   }, [themeMode]);
 
-  // Apply theme to body
+  // Apply theme to body + CSS variables
   useEffect(() => {
     document.body.style.background = "transparent";
     document.body.style.color = theme.text;
     const actualTheme = themeMode === "system" ? (getSystemTheme() === "dark" ? "dark" : "light") : themeMode;
     document.body.setAttribute("data-theme", actualTheme);
     document.documentElement.setAttribute("data-theme", actualTheme);
+    // Set CSS custom properties for theme colors
+    const root = document.documentElement;
+    root.style.setProperty("--bg", theme.bg);
+    root.style.setProperty("--surface", theme.surface);
+    root.style.setProperty("--surface-alt", theme.surfaceAlt);
+    root.style.setProperty("--border", theme.border);
+    root.style.setProperty("--text", theme.text);
+    root.style.setProperty("--text-secondary", theme.textSecondary);
+    root.style.setProperty("--muted", theme.muted);
+    root.style.setProperty("--accent", theme.accent);
+    root.style.setProperty("--accent-hover", theme.accentHover);
+    root.style.setProperty("--danger", theme.danger);
+    root.style.setProperty("--danger-bg", theme.dangerBg);
+    root.style.setProperty("--green", theme.green);
+    root.style.setProperty("--header-bg", theme.headerBg);
+    root.style.setProperty("--input-bg", theme.inputBg);
+    root.style.setProperty("--green-bg", `${theme.green}12`);
+    root.style.setProperty("--danger-border", `${theme.danger}33`);
   }, [theme, themeMode]);
 
   // Listen for navigation events from SettingsPage links
@@ -267,6 +284,8 @@ export default function App() {
 
     const resizeWindow = async () => {
       try {
+        // 200ms delay to prevent GTK SIGTRAP / crash during early window mapping on Linux
+        await new Promise((resolve) => setTimeout(resolve, 200));
         await appWindow.setResizable(true);
         await appWindow.setSize(new LogicalSize(newW, newH));
         await appWindow.center();
@@ -303,7 +322,6 @@ export default function App() {
 //  Main Page
 // ════════════════════════════════════════
 function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
-  const { theme: T } = useT();
   const [state, setState] = useState<RecordingState>("idle");
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState("");
@@ -413,84 +431,85 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
       {/* Record button */}
       <div className="record-control">
         <button onClick={toggle} disabled={state === "processing"}
-          className="record-button"
-          style={{ cursor: state === "processing" ? "wait" : "pointer", background: state === "recording" ? T.danger : state === "processing" ? T.muted : T.accent, boxShadow: state === "recording" ? `0 0 0 4px ${T.danger}33` : `0 0 0 4px ${T.accent}22` }}
+          className={`record-button ${state}`}
+          style={{
+            background: state === "recording" ? "var(--danger)" : state === "processing" ? "var(--muted)" : "var(--accent)",
+            boxShadow: state === "recording" ? "0 0 0 4px var(--danger-glow)" : "0 0 0 4px var(--accent-glow)"
+          }}
         >{state === "recording" ? Icon.stop(18) : state === "processing" ? Icon.spinner(18) : Icon.mic(18)}</button>
-        <p className="record-hint" style={{ color: T.muted }}>
+        <p className="record-hint">
           {state === "recording" ? "Recording..." : state === "processing" ? "Transcribing..." : "Press to record"}
         </p>
       </div>
 
-      {error && <div style={{ padding: "8px 12px", borderRadius: 8, background: T.dangerBg, color: T.danger, fontSize: 12, marginBottom: 8 }}>{error}</div>}
+      {error && <div className="error-banner">{error}</div>}
 
       {/* Provider tabs */}
-      <div className="provider-tabs" style={{ background: T.surfaceAlt }}>
+      <div className="provider-tabs">
         {["sensevoice", "paraformer"].map((p) => (
           <button key={p} onClick={() => saveProvider(p)}
-            style={{ flex: 1, padding: "8px 0", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 13, fontWeight: 500, background: provider === p ? T.surface : "transparent", color: provider === p ? T.text : T.muted, boxShadow: provider === p ? "0 1px 3px rgba(0,0,0,0.1)" : "none", transition: "all 0.15s" }}
+            className={`provider-tab-btn${provider === p ? " active" : ""}`}
           >{p === "sensevoice" ? "SenseVoice" : "Paraformer"}</button>
         ))}
       </div>
 
       {/* Provider description */}
-      <div style={{ fontSize: 11, color: T.muted, marginBottom: 8, padding: "0 0.2rem", lineHeight: 1.45 }}>
-        {provider === "sensevoice" 
+      <div className="provider-desc">
+        {provider === "sensevoice"
           ? "💡 SenseVoice: 多语言极速识别 (中/英/日/韩/粤)，支持检测情绪及笑声、掌声、BGM等事件。"
           : "💡 Paraformer: 专注中文高准确率语音识别，适合大段中文长语音识别。"}
       </div>
 
-      {/* Active model info / download prompt */}
-      <div className="model-summary">
-        {hasModel ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: T.textSecondary }}>
-            <span style={{ width: 5, height: 5, borderRadius: "50%", background: T.green, display: "inline-block" }} />
-            <span style={{ color: T.muted }}>Using:</span>
-            <span style={{ fontWeight: 500, color: T.text }}>
-              {activeModel
-                ? activeModel.name.replace("SenseVoice Small ", "")
-                : downloadedForProvider[0]?.name.replace("SenseVoice Small ", "") || "—"}
-            </span>
-          </div>
-        ) : (
-          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, color: T.danger }}>
-            <span style={{ width: 5, height: 5, borderRadius: "50%", background: T.danger, display: "inline-block" }} />
-            <span>No model downloaded.</span>
-            <button onClick={() => onNavigate("models")}
-              style={{ background: "none", border: "none", color: T.accent, fontSize: 13, cursor: "pointer", padding: 0, textDecoration: "underline", fontWeight: 500 }}
-            >Download now</button>
-          </div>
-        )}
-      </div>
-
       {/* Transcription (Editable text box) */}
       <textarea
-        className="transcription-panel"
+        className={`transcription-panel${transcript ? " has-text" : ""}`}
         value={transcript}
         onChange={(e) => setTranscript(e.target.value)}
         placeholder="Transcription will appear here..."
-        style={{
-          borderRadius: radius,
-          border: `1px solid ${T.border}`,
-          background: T.surface,
-          color: transcript ? T.text : T.muted,
-          fontSize: 13,
-          lineHeight: 1.65,
-          resize: "none",
-          outline: "none",
-          width: "100%",
-          fontFamily: "inherit"
-        }}
       />
 
-      <div className="transcript-footer">
-        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <div className="transcript-footer" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+        {/* Active model info / download prompt */}
+        <div style={{ minWidth: 0, flex: 1 }}>
+          {hasModel ? (
+            <div className="model-status" style={{ fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              <span className="icon-wrap" style={{ color: "var(--green)", flexShrink: 0 }}>
+                {Icon.package(12)}
+              </span>
+              <span className="model-status-label" style={{ flexShrink: 0 }}>Using:</span>
+              <span className="model-status-name" style={{ flexShrink: 0 }}>
+                {activeModel
+                  ? activeModel.name.replace("SenseVoice Small ", "")
+                  : downloadedForProvider[0]?.name.replace("SenseVoice Small ", "") || "—"}
+              </span>
+              {(() => {
+                const name = activeModel?.name || downloadedForProvider[0]?.name;
+                const details = name ? MODEL_DETAILS[name] : null;
+                return details ? (
+                  <span style={{ color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    — {details.desc}
+                  </span>
+                ) : null;
+              })()}
+            </div>
+          ) : (
+            <div className="no-model" style={{ fontSize: 11 }}>
+              <span className="status-dot danger" style={{ flexShrink: 0 }} />
+              <span style={{ flexShrink: 0 }}>No model downloaded.</span>
+              <button onClick={() => onNavigate("models")}
+                className="download-link" style={{ fontSize: 11, flexShrink: 0 }}
+              >Download now</button>
+            </div>
+          )}
+        </div>
+
+        {/* Copy button */}
+        <div className="transcript-footer-inner" style={{ flexShrink: 0 }}>
           {transcript && (
             <>
-              {copied && <span style={{ fontSize: 11, color: T.green, display: "flex", alignItems: "center", gap: 3 }}>{Icon.check(11)} Copied</span>}
+              {copied && <span className="copied-label">{Icon.check(11)} Copied</span>}
               <button onClick={() => { navigator.clipboard.writeText(transcript); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
-                style={{ padding: "3px 9px", borderRadius: 6, border: `1px solid ${T.border}`, background: T.surface, color: T.textSecondary, fontSize: 11, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, transition: "all 0.15s" }}
-                onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.background = T.surfaceAlt; }}
-                onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.background = T.surface; }}
+                className="copy-btn"
               >{Icon.clipboard(11)} Copy</button>
             </>
           )}
@@ -498,13 +517,13 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
       </div>
 
       {/* Status bar */}
-      <div className="status-bar" style={{ borderTop: `1px solid ${T.border}`, color: T.muted }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-          <span style={{ width: 6, height: 6, borderRadius: "50%", background: state === "recording" ? T.danger : T.green, display: "inline-block", transition: "background 0.2s" }} />
+      <div className="status-bar">
+        <div className="status-bar-left">
+          <span className={`status-indicator${state === "recording" ? " recording" : " ready"}`} />
           {state === "recording" ? "Recording" : state === "processing" ? "Processing" : "Ready"}
         </div>
         <button onClick={() => onNavigate("help")}
-          style={{ background: "none", border: "none", color: T.accent, fontSize: 12, cursor: "pointer", padding: 0, textDecoration: "underline" }}
+          className="hotkey-link"
         >Setup hotkey</button>
       </div>
     </div>
@@ -515,7 +534,6 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
 //  Models Page
 // ════════════════════════════════════════
 function ModelsPage() {
-  const { theme: T } = useT();
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -638,32 +656,21 @@ function ModelsPage() {
   });
 
   return (
-    <div style={{ padding: "12px 16px" }}>
+    <div className="models-page">
       {/* Tabs */}
-      <div className="provider-tabs" style={{ background: T.surfaceAlt, marginBottom: "12px" }}>
+      <div className="provider-tabs" style={{ marginBottom: 12 }}>
         {["sensevoice", "paraformer"].map((p) => (
           <button key={p} onClick={() => setActiveTab(p as any)}
-            style={{
-              flex: 1, padding: "8px 0", borderRadius: 7, border: "none", cursor: "pointer",
-              background: activeTab === p ? T.surface : "transparent",
-              color: activeTab === p ? T.text : T.muted,
-              fontSize: 13, fontWeight: 500,
-              boxShadow: activeTab === p ? "0 1px 3px rgba(0,0,0,0.1)" : "none",
-              transition: "all 0.15s"
-            }}
+            className={`provider-tab-btn${activeTab === p ? " active" : ""}`}
           >{p === "sensevoice" ? "SenseVoice" : "Paraformer"}</button>
         ))}
       </div>
 
-      {error && (
-        <div style={{ padding: "8px 10px", borderRadius: 6, background: `${T.danger}18`, color: T.danger, fontSize: 11, marginBottom: 10, border: `1px solid ${T.danger}33` }}>
-          {error}
-        </div>
-      )}
+      {error && <div className="models-error">{error}</div>}
 
       {/* Flat list */}
-      <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflowY: "auto", maxHeight: "46rem" }}>
-        {filteredModels.map((m, i) => {
+      <div className="model-list">
+        {filteredModels.map((m) => {
           const prog = progress[m.name];
           const isBusy = loading === m.name;
           const pct = prog?.percent ?? (prog?.status === "complete" ? 100 : 0);
@@ -676,80 +683,58 @@ function ModelsPage() {
           return (
             <div key={m.name}
               onClick={() => { if (effectiveDownloaded) selectModel(m.name); }}
-              style={{
-                display: "flex", alignItems: "center", gap: 10,
-                padding: "10px 14px",
-                borderLeft: isActive ? `3px solid ${T.green}` : "3px solid transparent",
-                borderBottom: i < filteredModels.length - 1 ? `1px solid ${T.border}` : "none",
-                background: isActive ? `${T.green}12` : "transparent",
-                cursor: effectiveDownloaded ? "pointer" : "default",
-                transition: "background 0.15s, border-color 0.15s",
-              }}
-              onMouseEnter={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = T.surfaceAlt; }}
-              onMouseLeave={(e) => { if (!isActive) (e.currentTarget as HTMLElement).style.background = "transparent"; }}
+              className={`model-item${isActive ? " active" : ""}${effectiveDownloaded ? " clickable" : ""}`}
             >
               {/* Name + size + description */}
-              <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 3 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{
-                    fontSize: 13, fontWeight: isActive ? 600 : 500,
-                    color: isActive ? T.green : T.text,
-                    overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap"
-                  }}>{m.name}</span>
+              <div className="model-info">
+                <div className="model-name-row">
+                  <span className={`model-name${isActive ? " active-name" : ""}`}>{m.name}</span>
                   {MODEL_DETAILS[m.name]?.tag && (
-                    <span style={{
-                      fontSize: 9,
-                      fontWeight: 600,
-                      padding: "1px 6px",
-                      borderRadius: 4,
+                    <span className="model-tag" style={{
                       background: `${MODEL_DETAILS[m.name].tagColor}22`,
                       color: MODEL_DETAILS[m.name].tagColor,
                       border: `1px solid ${MODEL_DETAILS[m.name].tagColor}33`,
                     }}>{MODEL_DETAILS[m.name].tag}</span>
                   )}
                   {effectiveDownloaded && (
-                    <span style={{ fontSize: 10, color: T.muted, flexShrink: 0 }}>{m.size_mb}MB</span>
+                    <span className="model-size">{m.size_mb}MB</span>
                   )}
                 </div>
                 {MODEL_DETAILS[m.name] && (
-                  <span style={{ fontSize: 11, color: T.muted, lineHeight: 1.3 }}>
-                    {MODEL_DETAILS[m.name].desc}
-                  </span>
+                  <span className="model-desc">{MODEL_DETAILS[m.name].desc}</span>
                 )}
               </div>
 
               {/* Progress bar (inline) */}
               {showProgress && (
-                <div style={{ width: 60, flexShrink: 0 }}>
-                  <div style={{ height: 3, background: T.border, borderRadius: 2, overflow: "hidden" }}>
-                    <div style={{ height: "100%", width: `${pct}%`, background: T.accent, transition: "width 120ms linear" }} />
+                <div className="progress-wrap">
+                  <div className="progress-track">
+                    <div className="progress-fill" style={{ width: `${pct}%` }} />
                   </div>
-                  <div style={{ fontSize: 9, color: T.muted, marginTop: 1, textAlign: "right" }}>{pct}%</div>
+                  <div className="progress-label">{pct}%</div>
                 </div>
               )}
 
               {/* Actions */}
-              <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 4 }} onClick={(e) => e.stopPropagation()}>
+              <div className="model-actions" onClick={(e) => e.stopPropagation()}>
                 {effectiveDownloaded ? (
                   <>
                     {isActive && (
-                      <span style={{ fontSize: 10, color: T.green, display: "flex", alignItems: "center" }}>{Icon.check(10)}</span>
+                      <span className="model-active-check">{Icon.check(10)}</span>
                     )}
                     <button
                       onClick={(e) => { e.stopPropagation(); del(m.name); }}
                       disabled={isBusy}
-                      style={{ width: 24, height: 24, borderRadius: 4, border: "none", background: "transparent", color: T.muted, cursor: isBusy ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: isBusy ? 0.4 : 1 }}
-                      onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.color = T.danger; }}
-                      onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.color = T.muted; }}
+                      className="model-action-btn delete"
                     >{isBusy ? Icon.spinner(10) : Icon.trash(10)}</button>
                   </>
                 ) : showProgress ? (
-                  <span style={{ display: "flex", alignItems: "center" }}>{prog?.status === "complete" ? Icon.check(12) : Icon.spinner(12)}</span>
+                  <span className="model-spinner">{prog?.status === "complete" ? Icon.check(12) : Icon.spinner(12)}</span>
                 ) : (
                   <button
                     onClick={(e) => { e.stopPropagation(); download(m.name); }}
                     disabled={loading !== null}
-                    style={{ width: 24, height: 24, borderRadius: 4, border: "none", background: "transparent", color: T.accent, cursor: loading !== null ? "not-allowed" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: loading !== null ? 0.4 : 1 }}
+                    className="model-action-btn download"
                   >{Icon.download(12)}</button>
                 )}
               </div>
@@ -765,25 +750,24 @@ function ModelsPage() {
 //  Help Page
 // ════════════════════════════════════════
 function HelpPage() {
-  const { theme: T } = useT();
   return (
-    <div style={{ padding: "20px" }}>
-      <h3 style={{ fontSize: 15, fontWeight: 600, marginBottom: 12 }}>Global Hotkey Setup</h3>
-      <p style={{ fontSize: 13, color: T.textSecondary, lineHeight: 1.7, marginBottom: 14 }}>
-        Add this to <code style={{ padding: "1px 4px", borderRadius: 3, background: T.surfaceAlt, fontSize: 12 }}>~/.config/labwc/rc.xml</code>:
+    <div className="help-page">
+      <h3>Global Hotkey Setup</h3>
+      <p>
+        Add this to <code>~/.config/labwc/rc.xml</code>:
       </p>
-      <div style={{ borderRadius: radius, border: `1px solid ${T.border}`, background: T.surfaceAlt, padding: 14, marginBottom: 14, transition: "all 0.2s" }}>
-        <pre style={{ fontSize: 12, fontFamily: "monospace", color: T.text, lineHeight: 1.7, margin: 0, whiteSpace: "pre-wrap" }}>{`<keybind key="A-r">
+      <div className="help-code-block">
+        <pre>{`<keybind key="A-r">
   <action name="Execute">
     <command>kazamo toggle</command>
   </action>
 </keybind>`}</pre>
       </div>
-      <p style={{ fontSize: 13, color: T.textSecondary, lineHeight: 1.7, marginBottom: 10 }}>
+      <p>
         Press <strong>Alt+R</strong> to toggle recording. Auto-starts Kazamo if not running.
       </p>
-      <p style={{ fontSize: 12, color: T.muted, lineHeight: 1.6 }}>
-        Or run <code style={{ padding: "1px 4px", borderRadius: 3, background: T.surfaceAlt, fontSize: 11, fontFamily: "monospace" }}>kazamo toggle</code> from the terminal.
+      <p>
+        Or run <code>kazamo toggle</code> from the terminal.
       </p>
     </div>
   );
