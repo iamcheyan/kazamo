@@ -455,7 +455,6 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
 
       {/* Provider description */}
       <div className="provider-desc">
-        <span className="icon-wrap" style={{ marginRight: 4, verticalAlign: "middle" }}>{Icon.lightbulb(12)}</span>
         {provider === "sensevoice"
           ? "SenseVoice: 多语言极速识别 (中/英/日/韩/粤)，支持检测情绪及笑声、掌声、BGM等事件。"
           : "Paraformer: 专注中文高准确率语音识别，适合大段中文长语音识别。"}
