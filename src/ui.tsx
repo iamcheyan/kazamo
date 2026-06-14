@@ -30,7 +30,7 @@ export const C = {
 // ════════════════════════════════════════
 //  Select
 // ════════════════════════════════════════
-interface SelectOption { value: string; label: string; }
+interface SelectOption { value: string; label: React.ReactNode; }
 
 export function Select({ value, onChange, options, width, theme }: {
   value: string;

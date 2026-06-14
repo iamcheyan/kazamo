@@ -15,18 +15,18 @@ interface ModelInfo { name: string; downloaded: boolean; path: string; size_mb: 
 const appWindow = getCurrentWindow();
 
 const LANGUAGES = [
-  { value: "auto", label: "🌐 Auto" },
-  { value: "zh", label: "🇨🇳 Chinese" },
-  { value: "en", label: "🇺🇸 English" },
-  { value: "ja", label: "🇯🇵 Japanese" },
-  { value: "ko", label: "🇰🇷 Korean" },
-  { value: "yue", label: "🇭🇰 Cantonese" },
+  { value: "auto", label: <>{Icon.globe(13)} Auto</> },
+  { value: "zh", label: <>中 Chinese</> },
+  { value: "en", label: <>EN English</> },
+  { value: "ja", label: <>日 Japanese</> },
+  { value: "ko", label: <>한 Korean</> },
+  { value: "yue", label: <>粤 Cantonese</> },
 ];
 
 const THEME_OPTIONS = [
-  { value: "system", label: "🖥️ System" },
-  { value: "light", label: "☀️ Light" },
-  { value: "dark", label: "🌙 Dark" },
+  { value: "system", label: <>{Icon.monitor(13)} System</> },
+  { value: "light", label: <>{Icon.sun(13)} Light</> },
+  { value: "dark", label: <>{Icon.moon(13)} Dark</> },
 ];
 
 const ZOOM_OPTIONS = [
@@ -455,9 +455,10 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
 
       {/* Provider description */}
       <div className="provider-desc">
+        <span className="icon-wrap" style={{ marginRight: 4, verticalAlign: "middle" }}>{Icon.lightbulb(12)}</span>
         {provider === "sensevoice"
-          ? "💡 SenseVoice: 多语言极速识别 (中/英/日/韩/粤)，支持检测情绪及笑声、掌声、BGM等事件。"
-          : "💡 Paraformer: 专注中文高准确率语音识别，适合大段中文长语音识别。"}
+          ? "SenseVoice: 多语言极速识别 (中/英/日/韩/粤)，支持检测情绪及笑声、掌声、BGM等事件。"
+          : "Paraformer: 专注中文高准确率语音识别，适合大段中文长语音识别。"}
       </div>
 
       {/* Transcription (Editable text box) */}
@@ -473,7 +474,7 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
         <div style={{ minWidth: 0, flex: 1 }}>
           {hasModel ? (
             <div className="model-status" style={{ fontSize: 11, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              <span className="icon-wrap" style={{ color: "var(--green)", flexShrink: 0 }}>
+              <span className="icon-wrap" style={{ color: "var(--muted)", flexShrink: 0 }}>
                 {Icon.package(12)}
               </span>
               <span className="model-status-label" style={{ flexShrink: 0 }}>Using:</span>
