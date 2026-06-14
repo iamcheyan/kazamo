@@ -478,19 +478,8 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
               </span>
               <span className="model-status-label" style={{ flexShrink: 0 }}>Using:</span>
               <span className="model-status-name" style={{ flexShrink: 0 }}>
-                {activeModel
-                  ? activeModel.name.replace("SenseVoice Small ", "")
-                  : downloadedForProvider[0]?.name.replace("SenseVoice Small ", "") || "—"}
+                {activeModel?.name || downloadedForProvider[0]?.name || "—"}
               </span>
-              {(() => {
-                const name = activeModel?.name || downloadedForProvider[0]?.name;
-                const details = name ? MODEL_DETAILS[name] : null;
-                return details ? (
-                  <span style={{ color: "var(--muted)", overflow: "hidden", textOverflow: "ellipsis" }}>
-                    — {details.desc}
-                  </span>
-                ) : null;
-              })()}
             </div>
           ) : (
             <div className="no-model" style={{ fontSize: 11 }}>
