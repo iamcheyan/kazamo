@@ -173,18 +173,16 @@ pub async fn transcribe_audio(state: tauri::State<'_, AppState>, audio_data: Vec
             }
         }
         "paraformer" => {
-            let binary = find_binary(&["sherpa-onnx-ws-linux-x64", "sherpa-onnx-ws"], &res_dir).await;
             let model = find_model("paraformer", &settings.paraformer_model).await;
-            eprintln!("[Kazamo] Paraformer: binary={:?}, model={:?}, res_dir={}", binary, model, res_dir.display());
-            match (binary, model) {
-                (Some(b), Some(m)) => {
-                    match crate::paraformer::transcribe_paraformer(&audio_data, &m, &b, &res_dir).await {
+            eprintln!("[Kazamo] Paraformer: model={:?}, res_dir={}", model, res_dir.display());
+            match model {
+                Some(m) => {
+                    match crate::paraformer::transcribe_paraformer(&audio_data, &m, "", &res_dir).await {
                         Ok(text) => transcription::TranscriptionResult { success: true, text, error: None },
                         Err(e) => transcription::TranscriptionResult { success: false, text: String::new(), error: Some(e) },
                     }
                 }
-                (None, _) => transcription::TranscriptionResult { success: false, text: String::new(), error: Some("sherpa-onnx-ws not found.".into()) },
-                (_, None) => transcription::TranscriptionResult { success: false, text: String::new(), error: Some("Paraformer model not downloaded.".into()) },
+                None => transcription::TranscriptionResult { success: false, text: String::new(), error: Some("Paraformer model not downloaded.".into()) },
             }
         }
         _ => transcription::TranscriptionResult { success: false, text: String::new(), error: Some(format!("Unknown provider: {}", settings.provider)) },
