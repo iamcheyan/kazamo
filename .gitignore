@@ -21,3 +21,6 @@ log.txt
 
 # Temp
 /tmp/
+fbank_lfr_cmvn_feature.json
+build-appimage.sh
+fix-appimage.sh
