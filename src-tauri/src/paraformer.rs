@@ -9,12 +9,16 @@ pub async fn transcribe_paraformer(
     binary_path: &str,
     resource_dir: &std::path::Path,
 ) -> Result<String, String> {
+    eprintln!("[Kazamo] Paraformer: starting, audio_len={}", audio_data.len());
+
     // Convert to 16kHz mono WAV (with volume boost, matching sensevoice behavior)
     let tmp_in = format!("/tmp/kazamo-pf-in-{}.wav", std::process::id());
     let tmp_wav = format!("/tmp/kazamo-pf-16k-{}.wav", std::process::id());
 
     tokio::fs::write(&tmp_in, audio_data).await.map_err(|e| format!("Write: {}", e))?;
+    eprintln!("[Kazamo] Paraformer: wrote tmp_in={}", tmp_in);
 
+    eprintln!("[Kazamo] Paraformer: running ffmpeg...");
     let status = Command::new("ffmpeg")
         .args(["-y", "-i", &tmp_in, "-ar", "16000", "-ac", "1", "-af", "volume=20dB", "-f", "wav", &tmp_wav])
         .stdout(Stdio::null()).stderr(Stdio::null())
@@ -26,11 +30,13 @@ pub async fn transcribe_paraformer(
         Err(e) => return Err(format!("ffmpeg: {}", e)),
         _ => {}
     }
+    eprintln!("[Kazamo] Paraformer: ffmpeg done");
 
     let audio_to_send = match tokio::fs::read(&tmp_wav).await {
         Ok(b) => b,
         Err(e) => { let _ = tokio::fs::remove_file(&tmp_wav).await; return Err(format!("Read converted wav: {}", e)); }
     };
+    eprintln!("[Kazamo] Paraformer: converted wav size={}", audio_to_send.len());
 
     // Set LD_LIBRARY_PATH: resources/bin + binary dir + fallback directories + existing
     let bin_dir = std::path::Path::new(binary_path).parent().unwrap_or(std::path::Path::new("."));
@@ -57,11 +63,14 @@ pub async fn transcribe_paraformer(
 
     // Find free port
     let port = find_free_port().await;
+    eprintln!("[Kazamo] Paraformer: using port={}", port);
 
     let model_path = format!("{}/model.onnx", model_dir);
     let tokens_path = format!("{}/tokens.txt", model_dir);
+    eprintln!("[Kazamo] Paraformer: model={}, tokens={}", model_path, tokens_path);
 
     // Start sherpa-onnx-ws server
+    eprintln!("[Kazamo] Paraformer: starting sherpa-onnx-ws server...");
     let mut server = Command::new(binary_path)
         .args([
             &format!("--paraformer={}", model_path),
@@ -90,13 +99,17 @@ pub async fn transcribe_paraformer(
     }
 
     if !ready {
+        eprintln!("[Kazamo] Paraformer: server failed to start within 10s");
         let _ = server.kill().await;
         return Err("sherpa-onnx-ws failed to start".into());
     }
+    eprintln!("[Kazamo] Paraformer: server ready");
 
     // Send audio via WebSocket (use the converted/boosted 16k WAV)
     let ws_url = format!("ws://127.0.0.1:{}", port);
+    eprintln!("[Kazamo] Paraformer: sending audio to {}", ws_url);
     let result = send_audio_ws(&ws_url, &audio_to_send, 16000).await;
+    eprintln!("[Kazamo] Paraformer: result={:?}", result);
 
     // Cleanup
     let _ = server.kill().await;
@@ -109,7 +122,9 @@ async fn send_audio_ws(url: &str, audio_data: &[u8], sample_rate: u32) -> Result
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::connect_async;
 
+    eprintln!("[Kazamo] Paraformer WS: connecting to {}", url);
     let (mut ws, _) = connect_async(url).await.map_err(|e| format!("WS connect: {}", e))?;
+    eprintln!("[Kazamo] Paraformer WS: connected");
 
     // Build message: sample_rate (i32 LE) + data_length (i32 LE) + audio_data
     let msg = {
@@ -119,23 +134,34 @@ async fn send_audio_ws(url: &str, audio_data: &[u8], sample_rate: u32) -> Result
         buf.extend_from_slice(audio_data);
         buf
     };
+    eprintln!("[Kazamo] Paraformer WS: sending {} bytes", msg.len());
 
     ws.send(tokio_tungstenite::tungstenite::Message::Binary(msg))
         .await.map_err(|e| format!("WS send: {}", e))?;
+    eprintln!("[Kazamo] Paraformer WS: sent, waiting for response...");
 
     let mut result = String::new();
     while let Some(msg) = ws.next().await {
         match msg {
             Ok(tokio_tungstenite::tungstenite::Message::Text(text)) => {
+                eprintln!("[Kazamo] Paraformer WS: received text (len={})", text.len());
                 result.push_str(&text);
                 // Send Done to signal end
                 let _ = ws.send(tokio_tungstenite::tungstenite::Message::Text("Done".into())).await;
             }
-            Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => break,
-            Err(_) => break,
+            Ok(tokio_tungstenite::tungstenite::Message::Close(_)) => {
+                eprintln!("[Kazamo] Paraformer WS: closed");
+                break;
+            }
+            Err(e) => {
+                eprintln!("[Kazamo] Paraformer WS error: {}", e);
+                break;
+            }
             _ => {}
         }
     }
+
+    eprintln!("[Kazamo] Paraformer WS: raw result='{}'", result.chars().take(200).collect::<String>());
 
     // Parse JSON result
     if let Ok(json) = serde_json::from_str::<serde_json::Value>(&result) {
