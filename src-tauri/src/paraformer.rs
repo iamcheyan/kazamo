@@ -38,6 +38,14 @@ pub async fn transcribe_paraformer(
     };
     eprintln!("[Kazamo] Paraformer: converted wav size={}", audio_to_send.len());
 
+    // Strip WAV header (44 bytes) to get raw PCM data
+    let pcm_data = if audio_to_send.len() > 44 && &audio_to_send[0..4] == b"RIFF" {
+        &audio_to_send[44..]
+    } else {
+        &audio_to_send[..]
+    };
+    eprintln!("[Kazamo] Paraformer: pcm_data size={}", pcm_data.len());
+
     // Set LD_LIBRARY_PATH: resources/bin + binary dir + fallback directories + existing
     let bin_dir = std::path::Path::new(binary_path).parent().unwrap_or(std::path::Path::new("."));
     let res_bin = resource_dir.join("bin");
@@ -105,10 +113,10 @@ pub async fn transcribe_paraformer(
     }
     eprintln!("[Kazamo] Paraformer: server ready");
 
-    // Send audio via WebSocket (use the converted/boosted 16k WAV)
+    // Send audio via WebSocket (raw PCM, no WAV header)
     let ws_url = format!("ws://127.0.0.1:{}", port);
     eprintln!("[Kazamo] Paraformer: sending audio to {}", ws_url);
-    let result = send_audio_ws(&ws_url, &audio_to_send, 16000).await;
+    let result = send_audio_ws(&ws_url, pcm_data, 16000).await;
     eprintln!("[Kazamo] Paraformer: result={:?}", result);
 
     // Cleanup
@@ -134,7 +142,7 @@ async fn send_audio_ws(url: &str, audio_data: &[u8], sample_rate: u32) -> Result
         buf.extend_from_slice(audio_data);
         buf
     };
-    eprintln!("[Kazamo] Paraformer WS: sending {} bytes", msg.len());
+    eprintln!("[Kazamo] Paraformer WS: sending {} bytes (rate={}, data_bytes={})", msg.len(), sample_rate, audio_data.len());
 
     ws.send(tokio_tungstenite::tungstenite::Message::Binary(msg))
         .await.map_err(|e| format!("WS send: {}", e))?;
