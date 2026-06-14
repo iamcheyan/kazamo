@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, createContext, useContext } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { getCurrentWindow, LogicalSize } from "@tauri-apps/api/window";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
@@ -252,12 +252,30 @@ export default function App() {
     return () => window.removeEventListener("kazamo-navigate", handler);
   }, []);
 
-  // Apply webview zoom (scales all CSS uniformly, like browser zoom)
+  // Set window size strictly to 525x582 and apply browser zoom (adjusted by zoom factor)
   useEffect(() => {
     const scale = zoom / 100;
+    const baseW = 525;
+    const baseH = 582;
+    const newW = baseW * scale;
+    const newH = baseH * scale;
+
+    // Apply Chromium's native webview zoom (perfect vector scaling of all pixel dimensions)
     try {
       getCurrentWebview().setZoom(scale).catch(() => {});
     } catch {}
+
+    const resizeWindow = async () => {
+      try {
+        await appWindow.setResizable(true);
+        await appWindow.setSize(new LogicalSize(newW, newH));
+        await appWindow.center();
+        await appWindow.setResizable(false);
+      } catch (e) {
+        console.error("Failed to resize window:", e);
+      }
+    };
+    resizeWindow();
   }, [zoom]);
 
   const setThemeModeAndApply = (mode: string) => {
@@ -415,7 +433,7 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
       </div>
 
       {/* Provider description */}
-      <div style={{ fontSize: 11, color: T.muted, marginBottom: 8, padding: "0 4px", lineHeight: 1.45 }}>
+      <div style={{ fontSize: 11, color: T.muted, marginBottom: 8, padding: "0 0.2rem", lineHeight: 1.45 }}>
         {provider === "sensevoice" 
           ? "💡 SenseVoice: 多语言极速识别 (中/英/日/韩/粤)，支持检测情绪及笑声、掌声、BGM等事件。"
           : "💡 Paraformer: 专注中文高准确率语音识别，适合大段中文长语音识别。"}
@@ -644,7 +662,7 @@ function ModelsPage() {
       )}
 
       {/* Flat list */}
-      <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflow: "hidden" }}>
+      <div style={{ border: `1px solid ${T.border}`, borderRadius: 8, overflowY: "auto", maxHeight: "46rem" }}>
         {filteredModels.map((m, i) => {
           const prog = progress[m.name];
           const isBusy = loading === m.name;

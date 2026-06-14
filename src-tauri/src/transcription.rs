@@ -43,11 +43,28 @@ pub async fn transcribe_sensevoice(
         _ => {}
     }
 
-    // Build LD_LIBRARY_PATH: resources/bin + binary dir + existing
+    // Build LD_LIBRARY_PATH: resources/bin + binary dir + fallback directories + existing
     let bin_dir = Path::new(binary_path).parent().unwrap_or(Path::new("."));
     let res_bin = resource_dir.join("bin");
+    
+    let mut ld_paths = vec![res_bin.to_string_lossy().to_string(), bin_dir.to_string_lossy().to_string()];
+    
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            // target/debug/resources/bin
+            ld_paths.push(dir.join("resources").join("bin").to_string_lossy().to_string());
+            // src-tauri/resources/bin
+            if let Some(base) = dir.parent().and_then(|p| p.parent()) {
+                ld_paths.push(base.join("resources").join("bin").to_string_lossy().to_string());
+            }
+        }
+    }
+    
     let existing = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
-    let ld_path = format!("{}:{}:{}", res_bin.display(), bin_dir.display(), existing);
+    if !existing.is_empty() {
+        ld_paths.push(existing);
+    }
+    let ld_path = ld_paths.join(":");
 
     let lang = match language { "zh"|"en"|"ja"|"ko"|"yue" => language, _ => "auto" };
 
