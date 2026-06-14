@@ -27,12 +27,30 @@ pub async fn transcribe_paraformer(
         _ => {}
     }
 
-    // Find the Python script in resource_dir/bin
-    let script = resource_dir.join("bin").join("paraformer-offline.py");
-    if !script.exists() {
-        let _ = tokio::fs::remove_file(&tmp_wav).await;
-        return Err("paraformer-offline.py not found".into());
+    // Find the Python script in multiple locations
+    let script_name = "paraformer-offline.py";
+    let mut script_candidates = vec![
+        resource_dir.join("bin").join(script_name),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            // target/debug/resources/bin/
+            script_candidates.push(dir.join("resources").join("bin").join(script_name));
+        }
     }
+    // Also check source tree (cwd may be project root or src-tauri/)
+    if let Ok(cwd) = std::env::current_dir() {
+        script_candidates.push(cwd.join("resources").join("bin").join(script_name));
+        script_candidates.push(cwd.join("src-tauri").join("resources").join("bin").join(script_name));
+    }
+    let script = script_candidates.iter().find(|p| p.exists());
+    let script = match script {
+        Some(s) => s.clone(),
+        None => {
+            let _ = tokio::fs::remove_file(&tmp_wav).await;
+            return Err(format!("paraformer-offline.py not found (searched: {:?})", script_candidates));
+        }
+    };
 
     let model_path = format!("{}/model.onnx", model_dir);
     let tokens_path = format!("{}/tokens.txt", model_dir);
