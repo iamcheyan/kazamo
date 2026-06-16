@@ -3,7 +3,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 use tauri::image::Image;
 
 // Shared result buffer for IPC transcription results
@@ -83,6 +83,32 @@ fn handle_client(mut stream: UnixStream, app: AppHandle, result_buf: ResultBuffe
                     }
                     thread::sleep(std::time::Duration::from_millis(200));
                 }
+            }
+            "focus-and-toggle" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.unminimize();
+                    let _ = w.set_focus();
+                }
+                let _ = app.emit("ipc-toggle", ());
+                let _ = stream.write_all(b"ok\n");
+            }
+            "show" => {
+                if let Some(w) = app.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.unminimize();
+                    let _ = w.set_focus();
+                }
+                let _ = stream.write_all(b"ok\n");
+            }
+            "status" => {
+                let state = app.state::<crate::commands::AppState>();
+                let status = if state.recorder._is_recording() {
+                    "recording\n"
+                } else {
+                    "idle\n"
+                };
+                let _ = stream.write_all(status.as_bytes());
             }
             "set-recording" => {
                 set_tray_recording(&app, true);

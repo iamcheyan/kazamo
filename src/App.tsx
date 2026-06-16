@@ -502,8 +502,11 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page, modelTab?: Provider) =
       } catch (e: any) { setError(`${e}`); await invoke("set_ipc_result", { text: "error" }); }
       setState("idle");
     });
-    return () => { u1.then((f) => f()); u2.then((f) => f()); };
-  }, [doStart]);
+    const u3 = listen("ipc-toggle", async () => {
+      toggle();
+    });
+    return () => { u1.then((f) => f()); u2.then((f) => f()); u3.then((f) => f()); };
+  }, [doStart, toggle]);
 
   return (
     <div className="main-page">

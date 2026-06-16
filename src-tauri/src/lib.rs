@@ -22,6 +22,14 @@ pub struct SharedState {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Check if another instance is already running by connecting to the IPC socket
+    let sock_path = ipc_socket::socket_path();
+    if let Ok(mut stream) = std::os::unix::net::UnixStream::connect(&sock_path) {
+        use std::io::Write;
+        let _ = stream.write_all(b"show\n");
+        return;
+    }
+
     let saved = Settings::load();
     let result_buf = ipc_socket::new_result_buffer();
     let result_buf_clone = result_buf.clone();
@@ -43,6 +51,18 @@ pub fn run() {
 
             // Start Unix socket
             ipc_socket::start_socket_server(app.handle().clone(), result_buf);
+
+            // Minimize to tray
+            if let Some(w) = app.get_webview_window("main") {
+                let w_clone = w.clone();
+                w.on_window_event(move |event| {
+                    if let tauri::WindowEvent::Resized(_) = event {
+                        if let Ok(true) = w_clone.is_minimized() {
+                            let _ = w_clone.hide();
+                        }
+                    }
+                });
+            }
 
             // Tray
             let dictation_item = MenuItem::with_id(app, "toggle-dictation", "Toggle Dictation", true, None::<&str>)?;
@@ -69,14 +89,14 @@ pub fn run() {
                             }
                         });
                     }
-                    "show" => { if let Some(w) = app.get_webview_window("main") { let _ = w.show(); let _ = w.set_focus(); } }
+                    "show" => { if let Some(w) = app.get_webview_window("main") { let _ = w.show(); let _ = w.unminimize(); let _ = w.set_focus(); } }
                     "hide" => { if let Some(w) = app.get_webview_window("main") { let _ = w.hide(); } }
                     "quit" => app.exit(0),
                     _ => {}
                 })
                 .on_tray_icon_event(|tray, event| {
                     if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = event {
-                        if let Some(w) = tray.app_handle().get_webview_window("main") { let _ = w.show(); let _ = w.set_focus(); }
+                        if let Some(w) = tray.app_handle().get_webview_window("main") { let _ = w.show(); let _ = w.unminimize(); let _ = w.set_focus(); }
                     }
                 })
                 .build(app)?;
