@@ -20,8 +20,64 @@ pub struct SharedState {
     pub ipc_result: ipc_socket::ResultBuffer,
 }
 
+fn integrate_appimage() {
+    if let Ok(appimage_path) = std::env::var("APPIMAGE") {
+        let home = match dirs::home_dir() {
+            Some(h) => h,
+            None => return,
+        };
+
+        let desktop_dir = home.join(".local/share/applications");
+        let icon_dir = home.join(".local/share/icons");
+
+        let _ = std::fs::create_dir_all(&desktop_dir);
+        let _ = std::fs::create_dir_all(&icon_dir);
+
+        let target_icon_path = icon_dir.join("kazamo.png");
+        let target_desktop_path = desktop_dir.join("kazamo-appimage.desktop");
+
+        if let Ok(appdir_path) = std::env::var("APPDIR") {
+            let appdir = std::path::Path::new(&appdir_path);
+            let candidate_icons = [
+                appdir.join("usr/share/icons/hicolor/256x256@2/apps/kazamo.png"),
+                appdir.join("usr/share/icons/hicolor/256x256@2/apps/Kazamo.png"),
+                appdir.join("usr/share/icons/hicolor/512x512/apps/kazamo.png"),
+                appdir.join("usr/share/icons/hicolor/512x512/apps/Kazamo.png"),
+                appdir.join("Kazamo.png"),
+                appdir.join("usr/share/icons/hicolor/256x256/apps/kazamo.png"),
+                appdir.join("usr/share/icons/hicolor/256x256/apps/Kazamo.png"),
+                appdir.join("kazamo.png"),
+                appdir.join("usr/share/icons/hicolor/128x128/apps/kazamo.png"),
+                appdir.join("usr/share/icons/hicolor/128x128/apps/Kazamo.png"),
+            ];
+
+            if let Some(src_icon) = candidate_icons.iter().find(|p| p.exists()) {
+                let _ = std::fs::copy(src_icon, &target_icon_path);
+            }
+        }
+
+        let desktop_content = format!(
+            "[Desktop Entry]\n\
+             Type=Application\n\
+             Name=Kazamo\n\
+             Comment=Kazamo - Voice-to-text for Linux\n\
+             Exec=\"{}\" %U\n\
+             Icon={}\n\
+             Categories=Utility;AudioVideo;\n\
+             Terminal=false\n\
+             StartupNotify=true\n",
+            appimage_path,
+            target_icon_path.to_string_lossy()
+        );
+
+        let _ = std::fs::write(&target_desktop_path, desktop_content);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Integrate AppImage shortcut and icon
+    integrate_appimage();
     // Check if another instance is already running by connecting to the IPC socket
     let sock_path = ipc_socket::socket_path();
     if let Ok(mut stream) = std::os::unix::net::UnixStream::connect(&sock_path) {
@@ -52,14 +108,13 @@ pub fn run() {
             // Start Unix socket
             ipc_socket::start_socket_server(app.handle().clone(), result_buf);
 
-            // Minimize to tray
+            // Hide to tray on close request instead of exiting
             if let Some(w) = app.get_webview_window("main") {
                 let w_clone = w.clone();
                 w.on_window_event(move |event| {
-                    if let tauri::WindowEvent::Resized(_) = event {
-                        if let Ok(true) = w_clone.is_minimized() {
-                            let _ = w_clone.hide();
-                        }
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = w_clone.hide();
                     }
                 });
             }

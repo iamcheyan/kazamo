@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Disable stripping to fix modern ELF relocation format (.relr.dyn) errors on modern Linux distros (Fedora 44)
+export NO_STRIP=true
+
 echo "=== Building Kazamo AppImage ==="
 
 # Step 1: Build Tauri (frontend + release + AppImage)
@@ -16,10 +19,19 @@ bash fix-appimage.sh
 echo "[3/3] Repackaging AppImage..."
 APPIMAGE_DIR="src-tauri/target/release/bundle/appimage"
 cd "$APPIMAGE_DIR"
-appimagetool Kazamo.AppDir Kazamo_0.1.0_amd64.AppImage
+
+ARCH=$(uname -m)
+if [ "$ARCH" = "x86_64" ]; then
+    ARCH_SUFFIX="amd64"
+else
+    ARCH_SUFFIX="$ARCH"
+fi
+APPIMAGE_NAME="Kazamo_0.1.0_${ARCH_SUFFIX}.AppImage"
+
+ARCH=$ARCH appimagetool Kazamo.AppDir "$APPIMAGE_NAME"
 cd - > /dev/null
 
 echo ""
 echo "=== Build complete ==="
-echo "AppImage: $APPIMAGE_DIR/Kazamo_0.1.0_amd64.AppImage"
-echo "Size: $(du -h $APPIMAGE_DIR/Kazamo_0.1.0_amd64.AppImage | cut -f1)"
+echo "AppImage: $APPIMAGE_DIR/$APPIMAGE_NAME"
+echo "Size: $(du -h $APPIMAGE_DIR/$APPIMAGE_NAME | cut -f1)"
