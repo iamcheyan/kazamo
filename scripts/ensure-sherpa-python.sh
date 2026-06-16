@@ -3,6 +3,7 @@ set -euo pipefail
 
 arch="$(uname -m)"
 case "$arch" in
+  x86_64) target="linux-x86_64" ;;
   aarch64|arm64) target="linux-aarch64" ;;
   *) exit 0 ;;
 esac
