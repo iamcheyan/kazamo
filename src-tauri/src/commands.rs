@@ -250,14 +250,25 @@ pub async fn toggle_tray_dictation(app: tauri::AppHandle) -> Result<(), String> 
 
 async fn copy_and_paste(text: &str) -> Result<(), String> {
     copy_to_clipboard(text).await?;
-    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
-    if try_wtype_paste().await.is_ok() || try_wtype_text(text).await.is_ok() || try_ydotool_paste().await.is_ok() {
-        return Ok(());
+    tokio::time::sleep(std::time::Duration::from_millis(350)).await;
+
+    let is_kde = std::env::var("XDG_CURRENT_DESKTOP")
+        .map(|v| v == "KDE")
+        .unwrap_or(false);
+
+    if is_kde {
+        if try_ydotool_paste().await.is_ok() || try_wtype_paste().await.is_ok() || try_wtype_text(text).await.is_ok() {
+            return Ok(());
+        }
+    } else {
+        if try_wtype_paste().await.is_ok() || try_wtype_text(text).await.is_ok() || try_ydotool_paste().await.is_ok() {
+            return Ok(());
+        }
     }
     let wtype_err = try_wtype_paste().await.err().unwrap_or_else(|| "not attempted".into());
     let ydotool_err = try_ydotool_paste().await.err().unwrap_or_else(|| "not attempted".into());
     eprintln!("[Kazamo] Auto paste failed: wtype={}, ydotool={}", wtype_err, ydotool_err);
-    Err("Copied to clipboard, but automatic paste failed. Install/use wtype or start ydotoold.".into())
+    Err("Copied to clipboard, but automatic paste failed. On KDE run scripts/setup-ydotoold.sh from the Kazamo repo.".into())
 }
 
 async fn copy_to_clipboard(text: &str) -> Result<(), String> {
@@ -276,7 +287,7 @@ async fn copy_to_clipboard(text: &str) -> Result<(), String> {
 
 async fn try_wtype_paste() -> Result<(), String> {
     let output = tokio::process::Command::new("wtype")
-        .args(["-M", "ctrl", "-P", "v", "-p", "v", "-m", "ctrl"])
+        .args(["-M", "ctrl", "-k", "v", "-m", "ctrl"])
         .output()
         .await
         .map_err(|e| format!("wtype failed to start: {}", e))?;
@@ -288,11 +299,17 @@ async fn try_wtype_paste() -> Result<(), String> {
 }
 
 async fn try_wtype_text(text: &str) -> Result<(), String> {
-    let output = tokio::process::Command::new("wtype")
-        .arg(text)
-        .output()
-        .await
+    let mut child = tokio::process::Command::new("wtype")
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("wtype text failed to start: {}", e))?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin.write_all(text.as_bytes()).await.map_err(|e| format!("Failed to write wtype input: {}", e))?;
+    }
+    let output = child.wait_with_output().await.map_err(|e| format!("wtype text failed: {}", e))?;
     if output.status.success() {
         Ok(())
     } else {
@@ -301,15 +318,10 @@ async fn try_wtype_text(text: &str) -> Result<(), String> {
 }
 
 async fn try_ydotool_paste() -> Result<(), String> {
-    let socket = std::env::var("YDOTOOL_SOCKET").unwrap_or_else(|_| {
-        let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| format!("/run/user/{}", unsafe { libc::geteuid() }));
-        format!("{}/.ydotool_socket", runtime)
-    });
-    if !std::path::Path::new(&socket).exists() {
-        return Err(format!("ydotool socket not found: {}", socket));
-    }
+    let socket = ydotool_socket().ok_or_else(|| "ydotool socket not found".to_string())?;
     let output = tokio::process::Command::new("ydotool")
         .args(["key", "29:1", "47:1", "47:0", "29:0"])
+        .env("YDOTOOL_SOCKET", &socket)
         .output()
         .await
         .map_err(|e| format!("ydotool failed to start: {}", e))?;
@@ -318,6 +330,19 @@ async fn try_ydotool_paste() -> Result<(), String> {
     } else {
         Err(format!("ydotool exited with {}: {}", output.status, String::from_utf8_lossy(&output.stderr).trim()))
     }
+}
+
+fn ydotool_socket() -> Option<String> {
+    let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| format!("/run/user/{}", unsafe { libc::geteuid() }));
+    let candidates = [
+        std::env::var("YDOTOOL_SOCKET").ok(),
+        Some(format!("{}/.ydotool_socket", runtime)),
+        Some("/tmp/.ydotool_socket".to_string()),
+    ];
+    candidates
+        .into_iter()
+        .flatten()
+        .find(|socket| std::path::Path::new(socket).exists())
 }
 
 async fn find_binary(names: &[&str], resource_dir: &PathBuf) -> Option<String> {

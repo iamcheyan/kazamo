@@ -2,10 +2,27 @@
 # kazamo - Voice-to-text tool for Linux
 SOCK="${XDG_RUNTIME_DIR:-/tmp}/kazamo.sock"
 STATE_FILE="${XDG_RUNTIME_DIR:-/tmp}/kazamo-state"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Resolve symlinks to find the real directory of this script
+SCRIPT_PATH="${BASH_SOURCE[0]}"
+while [ -L "$SCRIPT_PATH" ]; do
+    SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
+    SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+    [[ $SCRIPT_PATH != /* ]] && SCRIPT_PATH="$SCRIPT_DIR/$SCRIPT_PATH"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SCRIPT_PATH")" && pwd)"
 BIN="${KAZAMO_BIN:-$SCRIPT_DIR/src-tauri/target/debug/kazamo}"
 
-send() { echo "$1" | ncat -U "$SOCK" 2>/dev/null; }
+send() {
+    if command -v ncat &>/dev/null; then
+        echo "$1" | ncat -U "$SOCK" 2>/dev/null
+    elif command -v nc &>/dev/null; then
+        echo "$1" | nc -U "$SOCK" 2>/dev/null
+    elif command -v socat &>/dev/null; then
+        echo "$1" | socat - UNIX-CONNECT:"$SOCK" 2>/dev/null
+    else
+        python3 -c "import socket; s=socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.connect('$SOCK'); s.sendall(b'$1\n'); print(s.recv(1024).decode().strip())" 2>/dev/null
+    fi
+}
 
 app_running() { [ -S "$SOCK" ] && send "ping" 2>/dev/null | grep -q "pong"; }
 
@@ -13,23 +30,67 @@ copy_result() {
     command -v wl-copy &>/dev/null && printf "%s" "$1" | wl-copy
 }
 
+ydotool_socket() {
+    for socket in \
+        "${YDOTOOL_SOCKET:-}" \
+        "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/.ydotool_socket" \
+        "/tmp/.ydotool_socket"
+    do
+        [ -n "$socket" ] && [ -S "$socket" ] && printf "%s" "$socket" && return 0
+    done
+    return 1
+}
+
 paste_result() {
     [ "${KAZAMO_PASTE:-1}" = "0" ] && return 0
+    local text="$1"
 
     # Give the compositor a brief moment to restore focus after the hotkey command.
-    sleep "${KAZAMO_PASTE_DELAY:-0.08}"
+    sleep "${KAZAMO_PASTE_DELAY:-0.35}"
     local tool="${KAZAMO_PASTE_TOOL:-auto}"
+    local mode="${KAZAMO_PASTE_MODE:-paste}"
+    local socket=""
 
-    if [ "$tool" != "ydotool" ] && command -v wtype &>/dev/null; then
-        wtype -M ctrl -P v -p v -m ctrl 2>/dev/null && return 0
+    local preferred_tool="wtype"
+    if [ "$XDG_CURRENT_DESKTOP" = "KDE" ]; then
+        preferred_tool="ydotool"
+    fi
+    if [ "$tool" != "auto" ]; then
+        preferred_tool="$tool"
     fi
 
-    if [ "$tool" != "wtype" ] && command -v ydotool &>/dev/null && [ -S "${YDOTOOL_SOCKET:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/.ydotool_socket}" ]; then
-        # Linux input key code 29 = Ctrl, 47 = V.
-        ydotool key 29:1 47:1 47:0 29:0 >/dev/null 2>&1 && return 0
+    local tried_ydotool=0
+    local tried_wtype=0
+
+    # Try preferred tool first
+    if [ "$preferred_tool" = "wtype" ] && command -v wtype &>/dev/null; then
+        tried_wtype=1
+        if [ "$mode" != "paste" ]; then
+            printf "%s" "$text" | wtype - >/dev/null 2>&1 && return 0
+        fi
+        if [ "$mode" != "type" ]; then
+            wtype -M ctrl -k v -m ctrl >/dev/null 2>&1 && return 0
+        fi
+    elif [ "$preferred_tool" = "ydotool" ] && command -v ydotool &>/dev/null && socket="$(ydotool_socket)"; then
+        tried_ydotool=1
+        YDOTOOL_SOCKET="$socket" ydotool key 29:1 47:1 47:0 29:0 >/dev/null 2>&1 && return 0
     fi
 
-    echo "Copied to clipboard. Install wtype, or start ydotoold and set YDOTOOL_SOCKET, to paste automatically." >&2
+    # Fallbacks
+    if [ $tried_wtype -eq 0 ] && command -v wtype &>/dev/null; then
+        if [ "$mode" != "paste" ]; then
+            printf "%s" "$text" | wtype - >/dev/null 2>&1 && return 0
+        fi
+        if [ "$mode" != "type" ]; then
+            wtype -M ctrl -k v -m ctrl >/dev/null 2>&1 && return 0
+        fi
+    fi
+
+    if [ $tried_ydotool -eq 0 ] && command -v ydotool &>/dev/null && socket="$(ydotool_socket)"; then
+        YDOTOOL_SOCKET="$socket" ydotool key 29:1 47:1 47:0 29:0 >/dev/null 2>&1 && return 0
+    fi
+
+    echo "Copied to clipboard, but automatic paste failed. On KDE run: $SCRIPT_DIR/scripts/setup-ydotoold.sh" >&2
 }
 
 ensure_running() {
@@ -50,7 +111,7 @@ ensure_running() {
 
 cmd_toggle() {
     ensure_running
-    if [ -f "$STATE_FILE" ] && [ "$(cat "$STATE_FILE")" = "recording" ]; then
+    if [ "$(send "status")" = "recording" ]; then
         cmd_stop
     else
         cmd_start
@@ -59,7 +120,7 @@ cmd_toggle() {
 
 cmd_start() {
     ensure_running
-    if [ -f "$STATE_FILE" ] && [ "$(cat "$STATE_FILE")" = "recording" ]; then
+    if [ "$(send "status")" = "recording" ]; then
         echo "Already recording. Use 'kazamo stop' to stop." >&2
         return 1
     fi
@@ -75,7 +136,7 @@ cmd_start() {
 
 cmd_stop() {
     ensure_running
-    if [ ! -f "$STATE_FILE" ] || [ "$(cat "$STATE_FILE")" != "recording" ]; then
+    if [ "$(send "status")" != "recording" ]; then
         echo "Not recording. Use 'kazamo start' to start." >&2
         return 1
     fi
@@ -86,7 +147,7 @@ cmd_stop() {
     if [ -n "$RESULT" ] && [ "$RESULT" != "error" ] && [ "$RESULT" != "?" ]; then
         echo "$RESULT"
         if copy_result "$RESULT"; then
-            paste_result
+            paste_result "$RESULT"
         else
             echo "Install wl-clipboard for clipboard support." >&2
         fi
@@ -98,11 +159,7 @@ cmd_stop() {
 
 cmd_status() {
     if app_running; then
-        if [ -f "$STATE_FILE" ] && [ "$(cat "$STATE_FILE")" = "recording" ]; then
-            echo "recording"
-        else
-            echo "idle"
-        fi
+        send "status"
     else
         echo "stopped"
     fi
@@ -110,10 +167,7 @@ cmd_status() {
 
 cmd_show() {
     ensure_running
-    if app_running; then
-        wlrctl toplevel focus "chordvox-tauri: Kazamo" 2>/dev/null || \
-        wlrctl toplevel focus "Kazamo" 2>/dev/null || true
-    fi
+    send "show" >/dev/null
 }
 
 show_help() {
