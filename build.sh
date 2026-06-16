@@ -6,6 +6,7 @@ pkill -f target/debug/kazamo || true
 sleep 1
 
 echo "Building frontend..."
+./scripts/ensure-sherpa-python.sh
 npm run build
 
 echo "Building Tauri backend..."

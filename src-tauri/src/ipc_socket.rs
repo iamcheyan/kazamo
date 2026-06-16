@@ -46,7 +46,22 @@ fn handle_client(mut stream: UnixStream, app: AppHandle, result_buf: ResultBuffe
                 // Clear previous result
                 *result_buf.lock().unwrap() = None;
                 let _ = app.emit("ipc-toggle-start", ());
-                let _ = stream.write_all(b"ok\n");
+
+                // Wait briefly for the UI to confirm whether recording really started.
+                let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+                loop {
+                    if let Ok(buf) = result_buf.lock() {
+                        if let Some(ref text) = *buf {
+                            let _ = stream.write_all(format!("{}\n", text).as_bytes());
+                            return;
+                        }
+                    }
+                    if std::time::Instant::now() > deadline {
+                        let _ = stream.write_all(b"error\n");
+                        return;
+                    }
+                    thread::sleep(std::time::Duration::from_millis(100));
+                }
             }
             "toggle-stop" => {
                 // Clear result, emit stop event

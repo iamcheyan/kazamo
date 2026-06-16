@@ -76,6 +76,10 @@ pub async fn transcribe_sensevoice(
             }
         }
     };
+    if let Some(message) = binary_arch_error(&binary).await {
+        let _ = tokio::fs::remove_file(&tmp_out).await;
+        return err(&message);
+    }
 
     let lang = match language { "zh"|"en"|"ja"|"ko"|"yue" => language, _ => "auto" };
 
@@ -141,6 +145,39 @@ pub async fn transcribe_sensevoice(
 
 fn err(msg: &str) -> TranscriptionResult {
     TranscriptionResult { success: false, text: String::new(), error: Some(msg.to_string()) }
+}
+
+async fn binary_arch_error(path: &str) -> Option<String> {
+    let bytes = tokio::fs::read(path).await.ok()?;
+    if bytes.len() < 20 || &bytes[0..4] != b"\x7FELF" {
+        return None;
+    }
+
+    let machine = u16::from_le_bytes([bytes[18], bytes[19]]);
+    let binary_arch = match machine {
+        62 => "x86_64",
+        183 => "aarch64",
+        3 => "x86",
+        40 => "arm",
+        _ => return None,
+    };
+
+    let host_arch = match std::env::consts::ARCH {
+        "x86_64" => "x86_64",
+        "aarch64" => "aarch64",
+        "arm" => "arm",
+        "x86" | "i686" => "x86",
+        _ => return None,
+    };
+
+    if binary_arch == host_arch {
+        None
+    } else {
+        Some(format!(
+            "SenseVoice binary architecture mismatch: bundled binary is {}, but this machine is {}. Install or build a native sense-voice-main binary for {}.",
+            binary_arch, host_arch, host_arch
+        ))
+    }
 }
 
 /// Strip SenseVoice tags like <|zh|>, <|NEUTRAL|>, <|Speech|>, <|woitn|>, etc.

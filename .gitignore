@@ -7,6 +7,11 @@ src-tauri/target/
 # Build output
 dist/
 
+# Generated Python runtime bundled during local package builds
+src-tauri/resources/python/*/site-packages/*
+!src-tauri/resources/python/*/site-packages/.gitkeep
+.tmp/
+
 # OS
 .DS_Store
 Thumbs.db

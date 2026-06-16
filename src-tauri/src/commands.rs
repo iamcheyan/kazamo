@@ -30,6 +30,12 @@ fn set_tray_icon(app: &tauri::AppHandle, recording: bool) {
 #[derive(Serialize)]
 pub struct ModelInfo { pub name: String, pub downloaded: bool, pub path: String, pub size_mb: u64 }
 
+const SENSEVOICE_ONNX_MODEL: &str = "SenseVoice Small ONNX INT8";
+
+fn is_aarch64() -> bool {
+    std::env::consts::ARCH == "aarch64"
+}
+
 #[tauri::command]
 pub async fn get_settings(state: tauri::State<'_, AppState>) -> Result<Settings, String> {
     Ok(state.settings.lock().await.clone())
@@ -77,19 +83,25 @@ pub async fn stop_recording(state: tauri::State<'_, AppState>, app: tauri::AppHa
 pub async fn list_models() -> Result<Vec<ModelInfo>, String> {
     let home = dirs::home_dir().unwrap_or_default();
     let cache = home.join(".cache").join("chordvoxmini");
-    Ok(vec![
-        check_model("SenseVoice Small Q3_K", &cache.join("sensevoice-models"), &["sense-voice-small-q3_k.gguf"]),
-        check_model("SenseVoice Small Q4_0", &cache.join("sensevoice-models"), &["sense-voice-small-q4_0.gguf"]),
-        check_model("SenseVoice Small Q4_1", &cache.join("sensevoice-models"), &["sense-voice-small-q4_1.gguf"]),
-        check_model("SenseVoice Small Q4_K", &cache.join("sensevoice-models"), &["sense-voice-small-q4_k.gguf"]),
-        check_model("SenseVoice Small Q5_0", &cache.join("sensevoice-models"), &["sense-voice-small-q5_0.gguf"]),
-        check_model("SenseVoice Small Q5_K", &cache.join("sensevoice-models"), &["sense-voice-small-q5_k.gguf"]),
-        check_model("SenseVoice Small Q6_K", &cache.join("sensevoice-models"), &["sense-voice-small-q6_k.gguf"]),
-        check_model("SenseVoice Small Q8_0", &cache.join("sensevoice-models"), &["sense-voice-small-q8_0.gguf"]),
-        check_model("SenseVoice Small FP16", &cache.join("sensevoice-models"), &["sense-voice-small-fp16.gguf"]),
-        check_model("SenseVoice Small FP32", &cache.join("sensevoice-models"), &["sense-voice-small-fp32.gguf"]),
-        check_model("Paraformer-Large", &cache.join("paraformer-models").join("paraformer-large-zh"), &["model.onnx", "tokens.txt"]),
-    ])
+    let mut models = Vec::new();
+    if is_aarch64() {
+        models.push(check_model(SENSEVOICE_ONNX_MODEL, &cache.join("sensevoice-onnx-models").join("sense-voice-small-int8"), &["model.int8.onnx", "tokens.txt"]));
+    } else {
+        models.extend([
+            check_model("SenseVoice Small Q3_K", &cache.join("sensevoice-models"), &["sense-voice-small-q3_k.gguf"]),
+            check_model("SenseVoice Small Q4_0", &cache.join("sensevoice-models"), &["sense-voice-small-q4_0.gguf"]),
+            check_model("SenseVoice Small Q4_1", &cache.join("sensevoice-models"), &["sense-voice-small-q4_1.gguf"]),
+            check_model("SenseVoice Small Q4_K", &cache.join("sensevoice-models"), &["sense-voice-small-q4_k.gguf"]),
+            check_model("SenseVoice Small Q5_0", &cache.join("sensevoice-models"), &["sense-voice-small-q5_0.gguf"]),
+            check_model("SenseVoice Small Q5_K", &cache.join("sensevoice-models"), &["sense-voice-small-q5_k.gguf"]),
+            check_model("SenseVoice Small Q6_K", &cache.join("sensevoice-models"), &["sense-voice-small-q6_k.gguf"]),
+            check_model("SenseVoice Small Q8_0", &cache.join("sensevoice-models"), &["sense-voice-small-q8_0.gguf"]),
+            check_model("SenseVoice Small FP16", &cache.join("sensevoice-models"), &["sense-voice-small-fp16.gguf"]),
+            check_model("SenseVoice Small FP32", &cache.join("sensevoice-models"), &["sense-voice-small-fp32.gguf"]),
+        ]);
+    }
+    models.push(check_model("Paraformer-Large", &cache.join("paraformer-models").join("paraformer-large-zh"), &["model.onnx", "tokens.txt"]));
+    Ok(models)
 }
 
 fn check_model(name: &str, dir: &std::path::Path, files: &[&str]) -> ModelInfo {
@@ -109,6 +121,7 @@ pub async fn delete_model(name: String) -> Result<String, String> {
     let home = dirs::home_dir().unwrap_or_default();
     let cache = home.join(".cache").join("chordvoxmini");
     let (dir, files) = match name.as_str() {
+        SENSEVOICE_ONNX_MODEL => (cache.join("sensevoice-onnx-models").join("sense-voice-small-int8"), vec!["model.int8.onnx", "tokens.txt"]),
         "SenseVoice Small Q3_K" => (cache.join("sensevoice-models"), vec!["sense-voice-small-q3_k.gguf"]),
         "SenseVoice Small Q4_0" => (cache.join("sensevoice-models"), vec!["sense-voice-small-q4_0.gguf"]),
         "SenseVoice Small Q4_1" => (cache.join("sensevoice-models"), vec!["sense-voice-small-q4_1.gguf"]),
@@ -147,7 +160,9 @@ pub async fn delete_model(name: String) -> Result<String, String> {
 pub async fn open_model_dir(name: String) -> Result<(), String> {
     let home = dirs::home_dir().unwrap_or_default();
     let cache = home.join(".cache").join("chordvoxmini");
-    let dir = if name.starts_with("SenseVoice") {
+    let dir = if name == SENSEVOICE_ONNX_MODEL {
+        cache.join("sensevoice-onnx-models").join("sense-voice-small-int8")
+    } else if name.starts_with("SenseVoice") {
         cache.join("sensevoice-models")
     } else if name == "Paraformer-Large" {
         cache.join("paraformer-models").join("paraformer-large-zh")
@@ -164,12 +179,22 @@ pub async fn transcribe_audio(state: tauri::State<'_, AppState>, audio_data: Vec
     let res_dir = state.resource_dir.clone();
     let result = match settings.provider.as_str() {
         "sensevoice" => {
-            let binary = find_binary(&["sense-voice-main"], &res_dir).await;
             let model = find_model("sensevoice", &settings.sensevoice_model).await;
-            match (binary, model) {
-                (Some(b), Some(m)) => transcription::transcribe_sensevoice(&audio_data, &m, &b, &settings.language, &res_dir).await,
-                (None, _) => transcription::TranscriptionResult { success: false, text: String::new(), error: Some("sense-voice-main not found.".into()) },
-                (_, None) => transcription::TranscriptionResult { success: false, text: String::new(), error: Some("SenseVoice model not downloaded.".into()) },
+            match model {
+                Some(m) if settings.sensevoice_model == SENSEVOICE_ONNX_MODEL || is_aarch64() => {
+                    match crate::paraformer::transcribe_sensevoice_onnx(&audio_data, &m, &settings.language, &res_dir).await {
+                        Ok(text) => transcription::TranscriptionResult { success: true, text, error: None },
+                        Err(e) => transcription::TranscriptionResult { success: false, text: String::new(), error: Some(e) },
+                    }
+                }
+                Some(m) => {
+                    let binary = find_binary(&["sense-voice-main"], &res_dir).await;
+                    match binary {
+                        Some(b) => transcription::transcribe_sensevoice(&audio_data, &m, &b, &settings.language, &res_dir).await,
+                        None => transcription::TranscriptionResult { success: false, text: String::new(), error: Some("sense-voice-main not found.".into()) },
+                    }
+                }
+                None => transcription::TranscriptionResult { success: false, text: String::new(), error: Some("SenseVoice model not downloaded.".into()) },
             }
         }
         "paraformer" => {
@@ -226,6 +251,8 @@ async fn find_model(model_type: &str, active_model_name: &str) -> Option<String>
     let home = dirs::home_dir().unwrap_or_default();
     let cache = home.join(".cache").join("chordvoxmini");
     let paths: Vec<PathBuf> = match (model_type, active_model_name) {
+        ("sensevoice", SENSEVOICE_ONNX_MODEL) => vec![cache.join("sensevoice-onnx-models").join("sense-voice-small-int8").join("model.int8.onnx")],
+        ("sensevoice", _) if is_aarch64() => vec![cache.join("sensevoice-onnx-models").join("sense-voice-small-int8").join("model.int8.onnx")],
         // SenseVoice variants - match the exact names from list_models and UI selection
         ("sensevoice", "SenseVoice Small Q3_K") => vec![cache.join("sensevoice-models").join("sense-voice-small-q3_k.gguf")],
         ("sensevoice", "SenseVoice Small Q4_0") => vec![cache.join("sensevoice-models").join("sense-voice-small-q4_0.gguf")],
@@ -259,11 +286,13 @@ async fn find_model(model_type: &str, active_model_name: &str) -> Option<String>
                 }
             }
             if model_type == "sensevoice" {
-                // SenseVoice GGUF models need tokens.txt alongside
                 if let Some(parent) = p.parent() {
                     let tokens = parent.join("tokens.txt");
                     if tokio::fs::metadata(&tokens).await.is_err() {
                         continue; // missing tokens.txt, not ready
+                    }
+                    if p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.ends_with(".onnx")) {
+                        return Some(parent.to_string_lossy().to_string());
                     }
                 }
             }
@@ -290,6 +319,10 @@ pub async fn download_model(name: String, app: tauri::AppHandle) -> Result<Strin
     let cache = home.join(".cache").join("chordvoxmini");
 
     let (dir, url, filename) = match name.as_str() {
+        SENSEVOICE_ONNX_MODEL => {
+            let dir = cache.join("sensevoice-onnx-models").join("sense-voice-small-int8");
+            return download_sensevoice_onnx(&dir, &app).await;
+        }
         "SenseVoice Small Q3_K" => (cache.join("sensevoice-models"), "https://huggingface.co/lovemefan/sense-voice-gguf/resolve/main/sense-voice-small-q3_k.gguf", "sense-voice-small-q3_k.gguf"),
         "SenseVoice Small Q4_0" => (cache.join("sensevoice-models"), "https://huggingface.co/lovemefan/sense-voice-gguf/resolve/main/sense-voice-small-q4_0.gguf", "sense-voice-small-q4_0.gguf"),
         "SenseVoice Small Q4_1" => (cache.join("sensevoice-models"), "https://huggingface.co/lovemefan/sense-voice-gguf/resolve/main/sense-voice-small-q4_1.gguf", "sense-voice-small-q4_1.gguf"),
@@ -369,6 +402,57 @@ async fn ensure_sensevoice_tokens(dir: &std::path::Path, client: &reqwest::Clien
     file.write_all(&bytes).map_err(|e| e.to_string())?;
     eprintln!("[Kazamo] Downloaded tokens.txt to {}", tokens_dest.display());
     Ok(())
+}
+
+async fn download_sensevoice_onnx(dir: &std::path::Path, app: &tauri::AppHandle) -> Result<String, String> {
+    use tauri::Emitter;
+    use std::io::Write;
+    use futures_util::StreamExt;
+
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let files = [
+        (
+            "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/model.int8.onnx",
+            "model.int8.onnx",
+        ),
+        (
+            "https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/main/tokens.txt",
+            "tokens.txt",
+        ),
+    ];
+    let client = reqwest::Client::new();
+
+    for (url, filename) in files {
+        let dest = dir.join(filename);
+        if dest.exists() { continue; }
+
+        let temp = dir.join(format!("{}.part", filename));
+        let _ = std::fs::remove_file(&temp);
+        eprintln!("[Kazamo] Downloading SenseVoice ONNX/{}", filename);
+        let _ = app.emit("download-progress", serde_json::json!({ "model": SENSEVOICE_ONNX_MODEL, "status": "downloading", "file": filename }));
+
+        let resp = client.get(url).send().await.map_err(|e| format!("Download {} failed: {}", filename, e))?;
+        if !resp.status().is_success() {
+            return Err(format!("Download {} failed: HTTP {}", filename, resp.status()));
+        }
+        let total = resp.content_length().unwrap_or(0);
+        let mut file = std::fs::File::create(&temp).map_err(|e| e.to_string())?;
+        let mut downloaded: u64 = 0;
+        let mut stream = resp.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| format!("Download error: {}", e))?;
+            file.write_all(&chunk).map_err(|e| e.to_string())?;
+            downloaded += chunk.len() as u64;
+            if total > 0 {
+                let pct = (downloaded * 100 / total) as u32;
+                let _ = app.emit("download-progress", serde_json::json!({ "model": SENSEVOICE_ONNX_MODEL, "status": "downloading", "file": filename, "percent": pct }));
+            }
+        }
+        std::fs::rename(&temp, &dest).map_err(|e| e.to_string())?;
+    }
+
+    let _ = app.emit("download-progress", serde_json::json!({ "model": SENSEVOICE_ONNX_MODEL, "status": "complete", "percent": 100 }));
+    Ok("SenseVoice ONNX downloaded".to_string())
 }
 
 async fn download_paraformer(dir: &std::path::Path, app: &tauri::AppHandle) -> Result<String, String> {

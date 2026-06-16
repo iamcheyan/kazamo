@@ -34,10 +34,14 @@ cmd_start() {
         echo "Already recording. Use 'kazamo stop' to stop." >&2
         return 1
     fi
-    echo "recording" > "$STATE_FILE"
-    send "set-recording" >/dev/null
-    send "toggle-start" >/dev/null
-    echo "Recording started."
+    RESULT=$(send "toggle-start")
+    if [ "$RESULT" = "started" ]; then
+        echo "recording" > "$STATE_FILE"
+        echo "Recording started."
+    else
+        echo "No model downloaded. Open Kazamo and download a model first." >&2
+        return 1
+    fi
 }
 
 cmd_stop() {

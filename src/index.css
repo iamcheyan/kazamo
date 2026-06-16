@@ -143,6 +143,7 @@ select option { background: inherit; color: inherit; }
 .record-button.idle { cursor: pointer; }
 .record-button.recording { cursor: pointer; }
 .record-button.processing { cursor: wait; }
+.record-button:disabled { cursor: not-allowed; opacity: 0.85; }
 
 .record-hint { margin-top: 12px; font-size: 13px; line-height: 1.3; color: var(--muted); }
 

@@ -9,6 +9,7 @@ import { Select } from "./ui";
 import * as Mie from "@mielo-ui/mielo-react";
 
 type Page = "main" | "models" | "help" | "settings";
+type Provider = "sensevoice" | "paraformer";
 type RecordingState = "idle" | "recording" | "processing";
 interface ModelInfo { name: string; downloaded: boolean; path: string; size_mb: number; }
 
@@ -52,6 +53,7 @@ const MODEL_DETAILS: Record<string, { desc: string; tag?: string; tagColor?: str
   "SenseVoice Small Q8_0": { desc: "8-bit 高精度量化，准确度极高，适合高配置电脑", tag: "极清", tagColor: "#ef4444" },
   "SenseVoice Small FP16": { desc: "16-bit 半精度浮点，无损音质，运算速度较慢", tag: "无损", tagColor: "#ec4899" },
   "SenseVoice Small FP32": { desc: "32-bit 全精度浮点，完整未压缩模型，最慢", tag: "完整", tagColor: "#6b7280" },
+  "SenseVoice Small ONNX INT8": { desc: "sherpa-onnx INT8 模型，适合 Linux aarch64 原生运行", tag: "ARM64", tagColor: "#10b981" },
   "Paraformer-Large": { desc: "阿里开源高精度中文识别模型，适合中文长语音", tag: "中文特化", tagColor: "#f59e0b" },
 };
 
@@ -209,6 +211,7 @@ function SettingsPage({ zoom, setZoom }: { zoom: number; setZoom: (z: number) =>
 // ════════════════════════════════════════
 export default function App() {
   const [page, setPage] = useState<Page>("main");
+  const [modelsInitialTab, setModelsInitialTab] = useState<Provider>("sensevoice");
   const [themeMode, setThemeMode] = useState("system");
   const [theme, setTheme] = useState<Theme>(getSystemTheme() === "dark" ? dark : light);
   const [zoom, setZoom] = useState(() => {
@@ -303,13 +306,18 @@ export default function App() {
     setTheme(t);
   };
 
+  const navigate = (nextPage: Page, modelTab?: Provider) => {
+    if (modelTab) setModelsInitialTab(modelTab);
+    setPage(nextPage);
+  };
+
   return (
     <ThemeCtx.Provider value={{ theme, mode: themeMode === "system" ? getSystemTheme() : themeMode, setThemeMode: setThemeModeAndApply }}>
       <Mie.Window className="kazamo-window">
         <HeaderBar page={page} setPage={setPage} />
         <main className="page-viewport">
-          {page === "main" && <MainPage onNavigate={setPage} />}
-          {page === "models" && <ModelsPage />}
+          {page === "main" && <MainPage onNavigate={navigate} />}
+          {page === "models" && <ModelsPage initialTab={modelsInitialTab} />}
           {page === "settings" && <SettingsPage zoom={zoom} setZoom={setZoom} />}
           {page === "help" && <HelpPage />}
         </main>
@@ -321,12 +329,12 @@ export default function App() {
 // ════════════════════════════════════════
 //  Main Page
 // ════════════════════════════════════════
-function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
+function MainPage({ onNavigate }: { onNavigate: (p: Page, modelTab?: Provider) => void }) {
   const [state, setState] = useState<RecordingState>("idle");
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
-  const [provider, setProvider] = useState("sensevoice");
+  const [provider, setProvider] = useState<Provider>("sensevoice");
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [settings, setSettings] = useState<any>(null);
   const stateRef = useRef(state);
@@ -335,7 +343,7 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   // Load settings + models
   useEffect(() => {
     invoke("get_settings").then((s: any) => {
-      setProvider(s.provider || "sensevoice");
+      setProvider((s.provider || "sensevoice") as Provider);
       setSettings(s);
     }).catch(() => {});
     invoke("list_models").then((list: any) => setModels(list)).catch(() => {});
@@ -345,7 +353,7 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   useEffect(() => {
     const handler = () => {
       invoke("get_settings").then((s: any) => {
-        setProvider(s.provider || "sensevoice");
+        setProvider((s.provider || "sensevoice") as Provider);
         setSettings(s);
       }).catch(() => {});
       invoke("list_models").then((list: any) => setModels(list)).catch(() => {});
@@ -368,9 +376,13 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
     )
   );
 
-  const hasModel = !!activeModel || downloadedForProvider.length > 0;
+  const currentModel = activeModel || downloadedForProvider[0];
+  const hasModel = !!currentModel;
+  const missingModelMessage = provider === "sensevoice"
+    ? "Download a SenseVoice model before recording."
+    : "Download a Paraformer model before recording.";
 
-  const saveProvider = async (p: string) => {
+  const saveProvider = async (p: Provider) => {
     setProvider(p);
     try {
       const s: any = await invoke("get_settings");
@@ -392,9 +404,33 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
 
   const doStart = useCallback(async () => {
     setError(""); setTranscript(""); setCopied(false);
-    try { await invoke("start_recording"); setState("recording"); }
-    catch (e: any) { setError(`${e}`); }
-  }, []);
+    if (!hasModel) {
+      setError(missingModelMessage);
+      return false;
+    }
+    try {
+      if (currentModel && currentModel.name !== activeModelName && settings) {
+        const nextSettings = {
+          ...settings,
+          sensevoice_model: provider === "sensevoice" ? currentModel.name : settings.sensevoice_model,
+          paraformer_model: provider === "paraformer" ? currentModel.name : settings.paraformer_model,
+        };
+        await invoke("save_settings", {
+          language: settings.language,
+          provider: settings.provider,
+          hotkey: settings.hotkey,
+          theme: settings.theme,
+          sensevoice_model: nextSettings.sensevoice_model,
+          paraformer_model: nextSettings.paraformer_model,
+        });
+        setSettings(nextSettings);
+      }
+      await invoke("start_recording");
+      setState("recording");
+    }
+    catch (e: any) { setError(`${e}`); return false; }
+    return true;
+  }, [activeModelName, currentModel, hasModel, missingModelMessage, provider, settings]);
 
   const toggle = useCallback(() => {
     if (stateRef.current === "recording") doStop();
@@ -410,7 +446,16 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
   }, [toggle]);
 
   useEffect(() => {
-    const u1 = listen("ipc-toggle-start", () => { if (stateRef.current === "idle") doStart(); });
+    const u1 = listen("ipc-toggle-start", async () => {
+      if (stateRef.current !== "idle") return;
+      const started = await doStart();
+      if (!started) {
+        await invoke("set_ipc_result", { text: "error" }).catch(() => {});
+        await invoke("stop_recording").catch(() => {});
+      } else {
+        await invoke("set_ipc_result", { text: "started" }).catch(() => {});
+      }
+    });
     const u2 = listen("ipc-toggle-stop", async () => {
       if (stateRef.current !== "recording") return;
       setState("processing"); setError("");
@@ -430,15 +475,17 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
     <div className="main-page">
       {/* Record button */}
       <div className="record-control">
-        <button onClick={toggle} disabled={state === "processing"}
+        <button onClick={toggle} disabled={state === "processing" || !hasModel}
           className={`record-button ${state}`}
+          aria-disabled={!hasModel || state === "processing"}
+          title={!hasModel ? missingModelMessage : undefined}
           style={{
-            background: state === "recording" ? "var(--danger)" : state === "processing" ? "var(--muted)" : "var(--accent)",
-            boxShadow: state === "recording" ? "0 0 0 4px var(--danger-glow)" : "0 0 0 4px var(--accent-glow)"
+            background: state === "recording" ? "var(--danger)" : state === "processing" || !hasModel ? "var(--muted)" : "var(--accent)",
+            boxShadow: state === "recording" ? "0 0 0 4px var(--danger-glow)" : !hasModel ? "none" : "0 0 0 4px var(--accent-glow)"
           }}
         >{state === "recording" ? Icon.stop(18) : state === "processing" ? Icon.spinner(18) : Icon.mic(18)}</button>
         <p className="record-hint">
-          {state === "recording" ? "Recording..." : state === "processing" ? "Transcribing..." : "Press to record"}
+          {state === "recording" ? "Recording..." : state === "processing" ? "Transcribing..." : hasModel ? "Press to record" : "Download a model to record"}
         </p>
       </div>
 
@@ -446,7 +493,7 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
 
       {/* Provider tabs */}
       <div className="provider-tabs">
-        {["sensevoice", "paraformer"].map((p) => (
+        {(["sensevoice", "paraformer"] as Provider[]).map((p) => (
           <button key={p} onClick={() => saveProvider(p)}
             className={`provider-tab-btn${provider === p ? " active" : ""}`}
           >{p === "sensevoice" ? "SenseVoice" : "Paraformer"}</button>
@@ -478,14 +525,14 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
               </span>
               <span className="model-status-label" style={{ flexShrink: 0 }}>Using:</span>
               <span className="model-status-name" style={{ flexShrink: 0 }}>
-                {activeModel?.name || downloadedForProvider[0]?.name || "—"}
+                {currentModel?.name || "—"}
               </span>
             </div>
           ) : (
             <div className="no-model" style={{ fontSize: 11 }}>
               <span className="status-dot danger" style={{ flexShrink: 0 }} />
               <span style={{ flexShrink: 0 }}>No model downloaded.</span>
-              <button onClick={() => onNavigate("models")}
+              <button onClick={() => onNavigate("models", provider)}
                 className="download-link" style={{ fontSize: 11, flexShrink: 0 }}
               >Download now</button>
             </div>
@@ -508,8 +555,8 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
       {/* Status bar */}
       <div className="status-bar">
         <div className="status-bar-left">
-          <span className={`status-indicator${state === "recording" ? " recording" : " ready"}`} />
-          {state === "recording" ? "Recording" : state === "processing" ? "Processing" : "Ready"}
+          <span className={`status-indicator${state === "recording" || !hasModel ? " recording" : " ready"}`} />
+          {state === "recording" ? "Recording" : state === "processing" ? "Processing" : hasModel ? "Ready" : "Model required"}
         </div>
         <button onClick={() => onNavigate("help")}
           className="hotkey-link"
@@ -522,12 +569,12 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page) => void }) {
 // ════════════════════════════════════════
 //  Models Page
 // ════════════════════════════════════════
-function ModelsPage() {
+function ModelsPage({ initialTab }: { initialTab: Provider }) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [loading, setLoading] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<Record<string, { percent?: number; file?: string; status: string }>>({});
-  const [activeTab, setActiveTab] = useState<"sensevoice" | "paraformer">("sensevoice");
+  const [activeTab, setActiveTab] = useState<Provider>(initialTab);
   const [settings, setSettings] = useState<any>(null);
 
   const refresh = async () => {
@@ -543,6 +590,10 @@ function ModelsPage() {
     refresh();
     loadSettings();
   }, []);
+
+  useEffect(() => {
+    setActiveTab(initialTab);
+  }, [initialTab]);
 
   useEffect(() => {
     if (!loading) return;
@@ -648,8 +699,8 @@ function ModelsPage() {
     <div className="models-page">
       {/* Tabs */}
       <div className="provider-tabs" style={{ marginBottom: 12 }}>
-        {["sensevoice", "paraformer"].map((p) => (
-          <button key={p} onClick={() => setActiveTab(p as any)}
+        {(["sensevoice", "paraformer"] as Provider[]).map((p) => (
+          <button key={p} onClick={() => setActiveTab(p)}
             className={`provider-tab-btn${activeTab === p ? " active" : ""}`}
           >{p === "sensevoice" ? "SenseVoice" : "Paraformer"}</button>
         ))}
