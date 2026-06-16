@@ -10,6 +10,7 @@ static PARAFORMER_PROC: LazyLock<Arc<Mutex<Option<ParaformerProc>>>> =
 static SENSEVOICE_PROC: LazyLock<Arc<Mutex<Option<ParaformerProc>>>> =
     LazyLock::new(|| Arc::new(Mutex::new(None)));
 
+#[allow(dead_code)]
 struct ParaformerProc {
     child: Child,
     stdin: tokio::process::ChildStdin,
