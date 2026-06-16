@@ -2,19 +2,48 @@
 # kazamo - Voice-to-text tool for Linux
 SOCK="${XDG_RUNTIME_DIR:-/tmp}/kazamo.sock"
 STATE_FILE="${XDG_RUNTIME_DIR:-/tmp}/kazamo-state"
-BIN="/home/tetsuya/Development/ChordVoxTauri/src-tauri/target/debug/chordvox-tauri"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BIN="${KAZAMO_BIN:-$SCRIPT_DIR/src-tauri/target/debug/kazamo}"
 
 send() { echo "$1" | ncat -U "$SOCK" 2>/dev/null; }
 
 app_running() { [ -S "$SOCK" ] && send "ping" 2>/dev/null | grep -q "pong"; }
 
+copy_result() {
+    command -v wl-copy &>/dev/null && printf "%s" "$1" | wl-copy
+}
+
+paste_result() {
+    [ "${KAZAMO_PASTE:-1}" = "0" ] && return 0
+
+    # Give the compositor a brief moment to restore focus after the hotkey command.
+    sleep "${KAZAMO_PASTE_DELAY:-0.08}"
+    local tool="${KAZAMO_PASTE_TOOL:-auto}"
+
+    if [ "$tool" != "ydotool" ] && command -v wtype &>/dev/null; then
+        wtype -M ctrl -P v -p v -m ctrl 2>/dev/null && return 0
+    fi
+
+    if [ "$tool" != "wtype" ] && command -v ydotool &>/dev/null && [ -S "${YDOTOOL_SOCKET:-${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/.ydotool_socket}" ]; then
+        # Linux input key code 29 = Ctrl, 47 = V.
+        ydotool key 29:1 47:1 47:0 29:0 >/dev/null 2>&1 && return 0
+    fi
+
+    echo "Copied to clipboard. Install wtype, or start ydotoold and set YDOTOOL_SOCKET, to paste automatically." >&2
+}
+
 ensure_running() {
     if ! app_running; then
+        if [ ! -x "$BIN" ]; then
+            echo "Error: Kazamo binary not found or not executable: $BIN" >&2
+            echo "Run 'npm run tauri dev' or 'cargo build --manifest-path src-tauri/Cargo.toml' first." >&2
+            exit 1
+        fi
         rm -f "$SOCK" "$STATE_FILE"
         WEBKIT_DISABLE_DMABUF_RENDERER=1 "$BIN" &>/dev/null &
         disown
         for i in $(seq 1 20); do sleep 0.5; app_running && break; done
-        if ! app_running; then echo "Error: Failed to start Kazamo" >&2; exit 1; fi
+        if ! app_running; then echo "Error: Failed to start Kazamo: $BIN" >&2; exit 1; fi
         sleep 1
     fi
 }
@@ -56,7 +85,11 @@ cmd_stop() {
     RESULT=$(send "toggle-stop")
     if [ -n "$RESULT" ] && [ "$RESULT" != "error" ] && [ "$RESULT" != "?" ]; then
         echo "$RESULT"
-        command -v wl-copy &>/dev/null && echo -n "$RESULT" | wl-copy
+        if copy_result "$RESULT"; then
+            paste_result
+        else
+            echo "Install wl-clipboard for clipboard support." >&2
+        fi
     else
         echo "No speech detected." >&2
         return 1

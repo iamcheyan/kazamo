@@ -402,24 +402,47 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page, modelTab?: Provider) =
     setState("idle");
   }, []);
 
-  const doStart = useCallback(async () => {
+  const doStart = useCallback(async (fresh?: { provider: Provider; settings: any; models: ModelInfo[] }) => {
+    const startProvider = fresh?.provider ?? provider;
+    const startSettings = fresh?.settings ?? settings;
+    const startModels = fresh?.models ?? models;
+    const startActiveModelName = startProvider === "sensevoice"
+      ? startSettings?.sensevoice_model
+      : startSettings?.paraformer_model;
+    const startActiveModel = startModels.find(m => m.name === startActiveModelName && m.downloaded);
+    const startDownloadedForProvider = startModels.filter(m =>
+      m.downloaded && (
+        startProvider === "sensevoice" ? m.name.includes("SenseVoice") : m.name.includes("Paraformer")
+      )
+    );
+    const startCurrentModel = startActiveModel || startDownloadedForProvider[0];
+    const startMissingModelMessage = startProvider === "sensevoice"
+      ? "Download a SenseVoice model before recording."
+      : "Download a Paraformer model before recording.";
+
+    if (fresh) {
+      setProvider(startProvider);
+      setSettings(startSettings);
+      setModels(startModels);
+    }
+
     setError(""); setTranscript(""); setCopied(false);
-    if (!hasModel) {
-      setError(missingModelMessage);
+    if (!startCurrentModel) {
+      setError(startMissingModelMessage);
       return false;
     }
     try {
-      if (currentModel && currentModel.name !== activeModelName && settings) {
+      if (startCurrentModel && startCurrentModel.name !== startActiveModelName && startSettings) {
         const nextSettings = {
-          ...settings,
-          sensevoice_model: provider === "sensevoice" ? currentModel.name : settings.sensevoice_model,
-          paraformer_model: provider === "paraformer" ? currentModel.name : settings.paraformer_model,
+          ...startSettings,
+          sensevoice_model: startProvider === "sensevoice" ? startCurrentModel.name : startSettings.sensevoice_model,
+          paraformer_model: startProvider === "paraformer" ? startCurrentModel.name : startSettings.paraformer_model,
         };
         await invoke("save_settings", {
-          language: settings.language,
-          provider: settings.provider,
-          hotkey: settings.hotkey,
-          theme: settings.theme,
+          language: startSettings.language,
+          provider: startSettings.provider,
+          hotkey: startSettings.hotkey,
+          theme: startSettings.theme,
           sensevoice_model: nextSettings.sensevoice_model,
           paraformer_model: nextSettings.paraformer_model,
         });
@@ -430,7 +453,7 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page, modelTab?: Provider) =
     }
     catch (e: any) { setError(`${e}`); return false; }
     return true;
-  }, [activeModelName, currentModel, hasModel, missingModelMessage, provider, settings]);
+  }, [models, provider, settings]);
 
   const toggle = useCallback(() => {
     if (stateRef.current === "recording") doStop();
@@ -448,7 +471,18 @@ function MainPage({ onNavigate }: { onNavigate: (p: Page, modelTab?: Provider) =
   useEffect(() => {
     const u1 = listen("ipc-toggle-start", async () => {
       if (stateRef.current !== "idle") return;
-      const started = await doStart();
+      let started = false;
+      try {
+        const s: any = await invoke("get_settings");
+        const list: ModelInfo[] = await invoke("list_models");
+        started = await doStart({
+          provider: (s.provider || "sensevoice") as Provider,
+          settings: s,
+          models: list,
+        });
+      } catch {
+        started = await doStart();
+      }
       if (!started) {
         await invoke("set_ipc_result", { text: "error" }).catch(() => {});
         await invoke("stop_recording").catch(() => {});

@@ -45,17 +45,30 @@ pub fn run() {
             ipc_socket::start_socket_server(app.handle().clone(), result_buf);
 
             // Tray
+            let dictation_item = MenuItem::with_id(app, "toggle-dictation", "Toggle Dictation", true, None::<&str>)?;
             let show_item = MenuItem::with_id(app, "show", "Show Kazamo", true, None::<&str>)?;
             let hide_item = MenuItem::with_id(app, "hide", "Hide Kazamo", true, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-            let menu = Menu::with_items(app, &[&show_item, &hide_item, &quit_item])?;
-            let icon = Image::from_bytes(include_bytes!("../icons/icon.png")).expect("icon");
+            let menu = Menu::with_items(app, &[&dictation_item, &show_item, &hide_item, &quit_item])?;
+            let icon = Image::from_bytes(include_bytes!("../icons/tray-mic.png")).expect("tray icon");
 
             let _tray = TrayIconBuilder::with_id("main-tray")
                 .icon(icon)
+                .icon_as_template(false)
                 .menu(&menu)
                 .tooltip("Kazamo")
                 .on_menu_event(move |app, event| match event.id().as_ref() {
+                    "toggle-dictation" => {
+                        let app = app.clone();
+                        tauri::async_runtime::spawn(async move {
+                            if let Err(e) = commands::toggle_tray_dictation(app.clone()).await {
+                                eprintln!("[Kazamo] Tray dictation failed: {}", e);
+                                if let Some(tray) = app.tray_by_id("main-tray") {
+                                    let _ = tray.set_tooltip(Some(format!("Kazamo: {}", e)));
+                                }
+                            }
+                        });
+                    }
                     "show" => { if let Some(w) = app.get_webview_window("main") { let _ = w.show(); let _ = w.set_focus(); } }
                     "hide" => { if let Some(w) = app.get_webview_window("main") { let _ = w.hide(); } }
                     "quit" => app.exit(0),

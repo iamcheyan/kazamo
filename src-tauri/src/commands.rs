@@ -4,8 +4,11 @@ use crate::transcription;
 use crate::SharedState;
 use serde::Serialize;
 use std::path::PathBuf;
+use std::process::Stdio;
 use std::sync::Arc;
 use tauri::image::Image;
+use tauri::Manager;
+use tokio::io::AsyncWriteExt;
 
 pub struct AppState {
     pub recorder: Arc<Recorder>,
@@ -16,14 +19,22 @@ pub struct AppState {
 fn set_tray_icon(app: &tauri::AppHandle, recording: bool) {
     if let Some(tray) = app.tray_by_id("main-tray") {
         let icon = if recording {
-            Image::from_bytes(include_bytes!("../icons/icon-recording.png"))
+            Image::from_bytes(include_bytes!("../icons/tray-recording.png"))
         } else {
-            Image::from_bytes(include_bytes!("../icons/icon.png"))
+            Image::from_bytes(include_bytes!("../icons/tray-mic.png"))
         };
         if let Ok(icon) = icon {
-            let _ = tray.set_icon(Some(icon));
+            if let Err(e) = tray.set_icon_with_as_template(Some(icon), false) {
+                eprintln!("[Kazamo] Failed to update tray icon: {}", e);
+            }
         }
-        let _ = tray.set_tooltip(Some(if recording { "Kazamo ● Recording" } else { "Kazamo" }));
+        let tooltip = if recording { "Kazamo ● Recording" } else { "Kazamo" };
+        if let Err(e) = tray.set_tooltip(Some(tooltip)) {
+            eprintln!("[Kazamo] Failed to update tray tooltip: {}", e);
+        }
+        eprintln!("[Kazamo] Tray state: {}", if recording { "recording" } else { "idle" });
+    } else {
+        eprintln!("[Kazamo] Tray main-tray not found while setting recording={}", recording);
     }
 }
 
@@ -175,9 +186,14 @@ pub async fn open_model_dir(name: String) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn transcribe_audio(state: tauri::State<'_, AppState>, audio_data: Vec<u8>) -> Result<serde_json::Value, String> {
+    let result = transcribe_audio_inner(&state, audio_data).await;
+    Ok(serde_json::json!({ "success": result.success, "text": result.text, "error": result.error }))
+}
+
+async fn transcribe_audio_inner(state: &tauri::State<'_, AppState>, audio_data: Vec<u8>) -> transcription::TranscriptionResult {
     let settings = state.settings.lock().await.clone();
     let res_dir = state.resource_dir.clone();
-    let result = match settings.provider.as_str() {
+    match settings.provider.as_str() {
         "sensevoice" => {
             let model = find_model("sensevoice", &settings.sensevoice_model).await;
             match model {
@@ -211,8 +227,97 @@ pub async fn transcribe_audio(state: tauri::State<'_, AppState>, audio_data: Vec
             }
         }
         _ => transcription::TranscriptionResult { success: false, text: String::new(), error: Some(format!("Unknown provider: {}", settings.provider)) },
-    };
-    Ok(serde_json::json!({ "success": result.success, "text": result.text, "error": result.error }))
+    }
+}
+
+pub async fn toggle_tray_dictation(app: tauri::AppHandle) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    if !state.recorder._is_recording() {
+        state.recorder.start()?;
+        set_tray_icon(&app, true);
+        return Ok(());
+    }
+
+    let data = state.recorder.stop()?;
+    set_tray_icon(&app, false);
+    let result = transcribe_audio_inner(&state, data).await;
+    if !result.success {
+        return Err(result.error.unwrap_or_else(|| "Transcription failed".into()));
+    }
+
+    copy_and_paste(&result.text).await
+}
+
+async fn copy_and_paste(text: &str) -> Result<(), String> {
+    copy_to_clipboard(text).await?;
+    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+    if try_wtype_paste().await.is_ok() || try_wtype_text(text).await.is_ok() || try_ydotool_paste().await.is_ok() {
+        return Ok(());
+    }
+    let wtype_err = try_wtype_paste().await.err().unwrap_or_else(|| "not attempted".into());
+    let ydotool_err = try_ydotool_paste().await.err().unwrap_or_else(|| "not attempted".into());
+    eprintln!("[Kazamo] Auto paste failed: wtype={}, ydotool={}", wtype_err, ydotool_err);
+    Err("Copied to clipboard, but automatic paste failed. Install/use wtype or start ydotoold.".into())
+}
+
+async fn copy_to_clipboard(text: &str) -> Result<(), String> {
+    let mut child = tokio::process::Command::new("wl-copy")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("Failed to start wl-copy: {}", e))?;
+    if let Some(stdin) = child.stdin.as_mut() {
+        stdin.write_all(text.as_bytes()).await.map_err(|e| format!("Failed to write clipboard: {}", e))?;
+    }
+    let status = child.wait().await.map_err(|e| format!("wl-copy failed: {}", e))?;
+    if status.success() { Ok(()) } else { Err(format!("wl-copy exited with {}", status)) }
+}
+
+async fn try_wtype_paste() -> Result<(), String> {
+    let output = tokio::process::Command::new("wtype")
+        .args(["-M", "ctrl", "-P", "v", "-p", "v", "-m", "ctrl"])
+        .output()
+        .await
+        .map_err(|e| format!("wtype failed to start: {}", e))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!("wtype exited with {}: {}", output.status, String::from_utf8_lossy(&output.stderr).trim()))
+    }
+}
+
+async fn try_wtype_text(text: &str) -> Result<(), String> {
+    let output = tokio::process::Command::new("wtype")
+        .arg(text)
+        .output()
+        .await
+        .map_err(|e| format!("wtype text failed to start: {}", e))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!("wtype text exited with {}: {}", output.status, String::from_utf8_lossy(&output.stderr).trim()))
+    }
+}
+
+async fn try_ydotool_paste() -> Result<(), String> {
+    let socket = std::env::var("YDOTOOL_SOCKET").unwrap_or_else(|_| {
+        let runtime = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| format!("/run/user/{}", unsafe { libc::geteuid() }));
+        format!("{}/.ydotool_socket", runtime)
+    });
+    if !std::path::Path::new(&socket).exists() {
+        return Err(format!("ydotool socket not found: {}", socket));
+    }
+    let output = tokio::process::Command::new("ydotool")
+        .args(["key", "29:1", "47:1", "47:0", "29:0"])
+        .output()
+        .await
+        .map_err(|e| format!("ydotool failed to start: {}", e))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!("ydotool exited with {}: {}", output.status, String::from_utf8_lossy(&output.stderr).trim()))
+    }
 }
 
 async fn find_binary(names: &[&str], resource_dir: &PathBuf) -> Option<String> {

@@ -28,12 +28,6 @@
         "visible": true
       }
     ],
-    "trayIcon": {
-      "id": "main-tray",
-      "iconPath": "icons/icon.png",
-      "iconAsTemplate": false,
-      "tooltip": "Kazamo"
-    },
     "security": { "csp": null }
   },
   "bundle": {

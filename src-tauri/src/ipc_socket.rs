@@ -101,12 +101,21 @@ fn handle_client(mut stream: UnixStream, app: AppHandle, result_buf: ResultBuffe
 fn set_tray_recording(app: &AppHandle, recording: bool) {
     if let Some(tray) = app.tray_by_id("main-tray") {
         let icon = if recording {
-            Image::from_bytes(include_bytes!("../icons/icon-recording.png"))
+            Image::from_bytes(include_bytes!("../icons/tray-recording.png"))
         } else {
-            Image::from_bytes(include_bytes!("../icons/icon.png"))
+            Image::from_bytes(include_bytes!("../icons/tray-mic.png"))
         };
-        if let Ok(icon) = icon { let _ = tray.set_icon(Some(icon)); }
-        let _ = tray.set_tooltip(Some(if recording { "Kazamo ● Recording" } else { "Kazamo" }));
+        if let Ok(icon) = icon {
+            if let Err(e) = tray.set_icon_with_as_template(Some(icon), false) {
+                eprintln!("[Kazamo] Failed to update IPC tray icon: {}", e);
+            }
+        }
+        if let Err(e) = tray.set_tooltip(Some(if recording { "Kazamo ● Recording" } else { "Kazamo" })) {
+            eprintln!("[Kazamo] Failed to update IPC tray tooltip: {}", e);
+        }
+        eprintln!("[Kazamo] IPC tray state: {}", if recording { "recording" } else { "idle" });
+    } else {
+        eprintln!("[Kazamo] Tray main-tray not found for IPC recording={}", recording);
     }
 }
 
